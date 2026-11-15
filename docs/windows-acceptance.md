@@ -14,6 +14,8 @@ Use a Windows 10/11 x64 test computer and copies of your ebooks. Keep the origin
 
 ## Reading and organization
 
+- [ ] Open an existing Deft 0.1.1 library with a populated conversion cache. Check that reading history and categories survive the upgrade and that Settings → Storage shows the smaller conversion cache. Test a favorite and a category edit, then relaunch and check both changes.
+- [ ] In Reader → Page, switch **progress display** between percentage and page number. Verify actual page numbers on a PDF or comic and estimated pages on a reflowable ebook.
 - [ ] Open the library with enough books to overflow a 700 × 520 window. Scroll to both ends and verify that the sidebar and top bar stay fixed and the workspace stays within the window.
 - [ ] Change the reader theme or text size in one book, then open another and restart the app. Check that both books and Settings show the same preference. For fixed-layout books, verify the same behavior for fit and inversion.
 - [ ] Favorite a book, create and edit a category, confirm a suggested member, and restart to verify persistence. Reverse the library and category sort order.

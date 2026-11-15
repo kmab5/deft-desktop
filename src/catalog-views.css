@@ -81,6 +81,7 @@
   border-block-start: 1px solid var(--line);
 }
 .catalog-member:not(:has(.catalog-handle,.catalog-position)) { grid-template-columns: minmax(0, 1fr) auto auto; }
+.catalog-member > .state-pill { align-self: center; }
 .catalog-member[data-drag-over="true"] { border-block-start-color: var(--accent); background: var(--surface2); }
 .catalog-book-link, .catalog-author-row, .catalog-author-book, .catalog-note-source { background: transparent; color: inherit; border: 0; font: inherit; padding: 0; text-align: start; cursor: pointer; }
 .catalog-book-link { display: flex; align-items: center; gap: 9px; min-width: 0; }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { listen } from '@tauri-apps/api/event';
 import { ArrowUpRight, BarChart3, BookOpen, Bookmark, Check, FolderPlus, HardDrive, LibraryBig, RefreshCw, Search, Settings2, Users, X } from 'lucide-react';
 import { rpc, describeError } from './api';
+import { applyLibraryChanges, type SnapshotReply } from './libraryRefresh';
 import { Books } from './Books';
 import { BookDetail, AddCategoryDialog, MatchDialog, StateDialog, gatherMatches, type MatchEntry } from './BookDetail';
 import { Authors, Categories, Notes } from './CatalogViews';
@@ -43,11 +44,11 @@ export function App() {
   const [pendingSettings, setPendingSettings] = useState<{ id: number; patch: Partial<AppSettings> }[]>([]);
   const settingsWrite = useRef<Promise<void>>(Promise.resolve());
   const settingsSequence = useRef(0);
-  const settingsRevision = useRef(0);
   const toastElement = useRef<HTMLDivElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frame = useRef<HTMLElement>(null);
-  const refreshEpoch = useRef(0);
+  const libraryRevision = useRef<number | undefined>(undefined);
+  const refreshQueue = useRef<Promise<void>>(Promise.resolve());
   const dataRef = useRef(data);
   const focusSearch = useRef(false);
 
@@ -56,28 +57,25 @@ export function App() {
     setToast(message);
     toastTimer.current = setTimeout(()=>setToast(''),4800);
   },[]);
-  const refresh = useCallback(async () => {
-    const epoch = ++refreshEpoch.current;
-    const revision = settingsRevision.current;
-    const snapshot = await rpc<Snapshot>('snapshot');
-    if (refreshEpoch.current === epoch) {
-      const next = revision === settingsRevision.current ? snapshot : { ...snapshot, settings: dataRef.current.settings };
+  const refresh = useCallback(() => {
+    const request = refreshQueue.current.then(async () => {
+      const reply = await rpc<SnapshotReply>('snapshot', { since: libraryRevision.current });
+      const next = applyLibraryChanges(dataRef.current, reply);
+      libraryRevision.current = reply.revision;
       dataRef.current = next;
       setData(next);
       setLoaded(true);
       setFatal('');
-    }
-  },[]);
+    });
+    refreshQueue.current = request.catch(() => {});
+    return request;
+  }, []);
   const saveSettings = useCallback(async (patch: Partial<AppSettings>) => {
     const id = ++settingsSequence.current;
     setPendingSettings(previous => [...previous, { id, patch }]);
     const write = settingsWrite.current.then(async () => {
-      const saved = await rpc<AppSettings>('settingsPatch', { patch });
-      settingsRevision.current++;
-      const next = { ...dataRef.current, settings: saved ?? { ...dataRef.current.settings, ...patch } };
-      dataRef.current = next;
-      setData(next);
-      if (patch.seriesAutoFill === true) await refresh();
+      await rpc('settingsPatch', { patch });
+      await refresh();
     });
     settingsWrite.current = write.catch(() => {});
     try {

@@ -824,7 +824,7 @@ dependencies = [
 
 [[package]]
 name = "deft-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -834,6 +834,7 @@ dependencies = [
  "djvu-bzz",
  "dunce",
  "encoding_rs",
+ "flate2",
  "image",
  "kuchiki",
  "lopdf",
@@ -851,7 +852,7 @@ dependencies = [
 
 [[package]]
 name = "deft-desktop"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

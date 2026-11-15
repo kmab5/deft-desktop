@@ -2,11 +2,14 @@
 use crate::formats::Metadata;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 macro_rules! model {
     ($name:ident { $($fields:tt)* }) => {
-        #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+        #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
         #[serde(default, rename_all = "camelCase")]
         pub struct $name { $($fields)* }
     };
@@ -45,7 +48,7 @@ model!(Overrides {
     pub authors: Option<Vec<String>>,
     pub series: Option<String>,
     pub series_index: Option<f64>,
-    pub cover: Option<String>,
+    pub cover: Option<Arc<str>>,
 });
 
 model!(Book {
@@ -69,7 +72,7 @@ model!(Book {
     pub progress: f64,
     pub locator: Option<Locator>,
     pub fixed: Value,
-    pub cover: Option<String>,
+    pub cover: Option<Arc<str>>,
     pub series: Option<String>,
     pub series_index: Option<f64>,
     pub edition: Option<Value>,
@@ -78,6 +81,14 @@ model!(Book {
 });
 
 impl Book {
+    pub fn update_cover(&mut self) {
+        self.cover = self
+            .overrides
+            .cover
+            .clone()
+            .or_else(|| self.metadata.cover.clone());
+    }
+
     pub fn apply_metadata(&mut self) {
         self.title = self
             .overrides
@@ -100,11 +111,7 @@ impl Book {
             .clone()
             .or_else(|| self.metadata.series.clone());
         self.series_index = self.overrides.series_index.or(self.metadata.series_index);
-        self.cover = self
-            .overrides
-            .cover
-            .clone()
-            .or_else(|| self.metadata.cover.clone());
+        self.update_cover();
         self.page_count = self.metadata.page_count;
         self.protected = self.metadata.protected;
         self.missing = self.files.iter().all(|file| file.missing);
@@ -135,7 +142,7 @@ model!(Category {
     pub type_ids: Vec<String>,
     pub members: Vec<Member>,
     pub rating: Option<f64>,
-    pub cover: Option<String>,
+    pub cover: Option<Arc<str>>,
     pub order_mode: String,
     pub sort_reversed: bool,
     pub auto_created: bool,
@@ -228,12 +235,12 @@ impl Default for State {
                 built_in: true,
             }],
             settings: json!({
-                "formats": FORMATS, "seriesAutoFill": true, "prepareInBackground": true,
-                "cacheLimitMb": 1024, "appTheme": "system", "celebrations": true,
+                "formats": FORMATS, "seriesAutoFill": true, "prepareInBackground": false,
+                "cacheLimitMb": 128, "appTheme": "system", "celebrations": true,
                 "reflowIdleMinutes": 5, "fixedIdleMinutes": 10, "minSessionSeconds": 60,
                 "streakMinutes": 1, "trackingIndicator": false, "goals": {},
                 "readerFont": "Literata", "readerFontSize": 19, "readerLineSpacing": 1.65,
-                "readerTheme": "sepia", "readerKeepAwake": true,
+                "readerTheme": "sepia", "readerKeepAwake": true, "readerProgressDisplay": "percentage",
                 "matchingOpenLibrary": true, "matchingGoogleBooks": true, "matchingHardcover": true,
                 "backupEnabled": false, "backupKeep": 4
             }),

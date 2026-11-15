@@ -1,0 +1,1881 @@
+From a1230b0c96e4b39b095cf7691acddd69fc952e38 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sun, 15 Nov 2026 23:19:45 +0300
+Subject: [PATCH] fix: update library records incrementally and bound the
+ reading cache
+
+---
+ Cargo.lock                       |   5 +-
+ Cargo.toml                       |   2 +-
+ crates/deft-core/Cargo.toml      |   3 +-
+ crates/deft-core/src/cache.rs    | 239 ++++++++++++++++++++
+ crates/deft-core/src/exchange.rs |  10 +-
+ crates/deft-core/src/formats.rs  |  13 +-
+ crates/deft-core/src/lib.rs      |   1 +
+ crates/deft-core/src/matching.rs |   1 +
+ crates/deft-core/src/model.rs    |  33 +--
+ crates/deft-core/src/store.rs    | 373 ++++++++++++++++++++++++++-----
+ docs/desktop-implementation.md   |   4 +-
+ docs/windows-acceptance.md       |   2 +
+ package-lock.json                |   4 +-
+ package.json                     |   2 +-
+ src-tauri/src/desktop.rs         | 131 ++++++++---
+ src-tauri/src/main.rs            |   2 +-
+ src-tauri/src/operations.rs      |  20 +-
+ src-tauri/src/publication.rs     | 173 +++-----------
+ src-tauri/tauri.conf.json        |   2 +-
+ src/App.tsx                      |  30 ++-
+ src/Reader.tsx                   |  12 +-
+ src/Settings.tsx                 |   9 +-
+ src/catalog-views.css            |   1 +
+ src/libraryRefresh.test.ts       |  35 +++
+ src/libraryRefresh.ts            |  37 +++
+ src/readerText.test.ts           |   8 +-
+ src/readerText.ts                |  11 +-
+ 27 files changed, 870 insertions(+), 293 deletions(-)
+ create mode 100644 crates/deft-core/src/cache.rs
+ create mode 100644 src/libraryRefresh.test.ts
+ create mode 100644 src/libraryRefresh.ts
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 6cdcb2f..d6e6907 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -824,7 +824,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "deft-core"
+-version = "0.1.1"
++version = "0.1.2"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -834,6 +834,7 @@ dependencies = [
+  "djvu-bzz",
+  "dunce",
+  "encoding_rs",
++ "flate2",
+  "image",
+  "kuchiki",
+  "lopdf",
+@@ -851,7 +852,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "deft-desktop"
+-version = "0.1.1"
++version = "0.1.2"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+diff --git a/Cargo.toml b/Cargo.toml
+index 7b54701..b73ef7f 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -3,7 +3,7 @@ members = ["crates/deft-core", "src-tauri"]
+ resolver = "2"
+ 
+ [workspace.package]
+-version = "0.1.1"
++version = "0.1.2"
+ edition = "2021"
+ license = "GPL-3.0-only"
+ rust-version = "1.88"
+diff --git a/crates/deft-core/Cargo.toml b/crates/deft-core/Cargo.toml
+index 08511b3..a6e49b7 100644
+--- a/crates/deft-core/Cargo.toml
++++ b/crates/deft-core/Cargo.toml
+@@ -14,6 +14,7 @@ csv = "1.4"
+ djvu-bzz = "=0.44.1"
+ dunce = "1"
+ encoding_rs = "0.8"
++flate2 = "1"
+ image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+ kuchiki = "0.8"
+ lopdf = { version = "0.38", default-features = false }
+@@ -21,7 +22,7 @@ percent-encoding = "2.3"
+ reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+ roxmltree = "0.21"
+ rusqlite = { version = "0.37", features = ["bundled"] }
+-serde = { version = "1", features = ["derive"] }
++serde = { version = "1", features = ["derive", "rc"] }
+ serde_json = "1"
+ sha2 = "0.10"
+ tempfile = "3"
+diff --git a/crates/deft-core/src/cache.rs b/crates/deft-core/src/cache.rs
+new file mode 100644
+index 0000000..78d69fb
+--- /dev/null
++++ b/crates/deft-core/src/cache.rs
+@@ -0,0 +1,239 @@
++// SPDX-License-Identifier: GPL-3.0-only
++use anyhow::{anyhow, Result};
++use flate2::{read::GzDecoder, write::GzEncoder, Compression};
++use serde_json::Value;
++use std::{
++    collections::HashMap,
++    fs,
++    io::{Read, Write},
++    path::PathBuf,
++    sync::{Mutex, MutexGuard},
++    time::SystemTime,
++};
++
++pub const DEFAULT_BUDGET_MB: u64 = 128;
++const MAX_ENTRIES: usize = 64;
++const MAX_ENTRY_BYTES: usize = 8 * 1024 * 1024;
++const MAX_EXPANDED_BYTES: usize = 48 * 1024 * 1024;
++const SUFFIX: &str = "-v2.json.gz";
++const OLD_SUFFIX: &str = "-v1.json";
++
++pub fn budget(megabytes: Option<u64>) -> u64 {
++    megabytes.unwrap_or(DEFAULT_BUDGET_MB).min(16_384) * 1024 * 1024
++}
++
++fn valid_key(id: &str) -> bool {
++    id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
++}
++
++struct Entry {
++    size: u64,
++    touched: SystemTime,
++}
++
++#[derive(Default)]
++struct Index {
++    entries: HashMap<String, Entry>,
++    bytes: u64,
++    generation: u64,
++    limit: u64,
++}
++
++pub struct PublicationCache {
++    directory: PathBuf,
++    index: Mutex<Index>,
++}
++
++impl PublicationCache {
++    pub fn new(directory: PathBuf, limit: u64) -> Result<Self> {
++        let mut index = Index {
++            limit,
++            ..Index::default()
++        };
++        if directory.is_dir() {
++            for entry in fs::read_dir(&directory)?.flatten() {
++                let Ok(kind) = entry.file_type() else {
++                    continue;
++                };
++                if !kind.is_file() {
++                    continue;
++                }
++                let name = entry.file_name();
++                let Some(name) = name.to_str() else { continue };
++                if name.strip_suffix(OLD_SUFFIX).is_some_and(valid_key) {
++                    // These are derived files from the old uncompressed cache.
++                    let _ = fs::remove_file(entry.path());
++                    continue;
++                }
++                let Some(id) = name.strip_suffix(SUFFIX).filter(|id| valid_key(id)) else {
++                    continue;
++                };
++                let info = entry.metadata()?;
++                let size = info.len();
++                let touched = info.modified().unwrap_or(SystemTime::UNIX_EPOCH);
++                index.bytes += size;
++                index.entries.insert(id.into(), Entry { size, touched });
++            }
++        }
++        let cache = Self {
++            directory,
++            index: Mutex::new(index),
++        };
++        cache.resize(limit)?;
++        Ok(cache)
++    }
++
++    fn lock(&self) -> Result<MutexGuard<'_, Index>> {
++        self.index.lock().map_err(|_| anyhow!("Cache unavailable."))
++    }
++
++    fn path(&self, id: &str) -> PathBuf {
++        self.directory.join(format!("{id}{SUFFIX}"))
++    }
++
++    pub fn size(&self) -> u64 {
++        self.lock().map(|index| index.bytes).unwrap_or_default()
++    }
++
++    fn remove(&self, index: &mut Index, id: &str) -> Result<()> {
++        match fs::remove_file(self.path(id)) {
++            Ok(()) => {}
++            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
++            Err(error) => return Err(error.into()),
++        }
++        if let Some(entry) = index.entries.remove(id) {
++            index.bytes = index.bytes.saturating_sub(entry.size);
++        }
++        Ok(())
++    }
++
++    fn trim(&self, index: &mut Index, incoming_size: u64, incoming_count: usize) -> Result<()> {
++        let mut sorted: Vec<_> = index
++            .entries
++            .iter()
++            .map(|(id, entry)| (entry.touched, id.clone()))
++            .collect();
++        sorted.sort_unstable();
++        for (_, id) in sorted {
++            if index.bytes.saturating_add(incoming_size) <= index.limit
++                && index.entries.len() + incoming_count <= MAX_ENTRIES
++            {
++                break;
++            }
++            self.remove(index, &id)?;
++        }
++        Ok(())
++    }
++
++    pub fn resize(&self, limit: u64) -> Result<()> {
++        let mut index = self.lock()?;
++        index.limit = limit;
++        self.trim(&mut index, 0, 0)
++    }
++
++    pub fn get(&self, id: &str) -> Option<Value> {
++        let file = {
++            let mut index = self.lock().ok()?;
++            let entry = index.entries.get_mut(id)?;
++            let path = self.path(id);
++            let file = fs::File::open(&path).ok()?;
++            entry.touched = SystemTime::now();
++            let _ = fs::OpenOptions::new()
++                .write(true)
++                .open(path)
++                .and_then(|handle| handle.set_modified(entry.touched));
++            file
++        };
++        let mut data = Vec::new();
++        GzDecoder::new(file)
++            .take(MAX_EXPANDED_BYTES as u64 + 1)
++            .read_to_end(&mut data)
++            .ok()?;
++        (data.len() <= MAX_EXPANDED_BYTES)
++            .then(|| serde_json::from_slice(&data).ok())
++            .flatten()
++    }
++
++    pub fn put(&self, id: &str, publication: &Value) -> Result<()> {
++        if !valid_key(id) {
++            return Ok(());
++        }
++        let generation = {
++            let index = self.lock()?;
++            if index.limit == 0 {
++                return Ok(());
++            }
++            index.generation
++        };
++        let plain = serde_json::to_vec(publication)?;
++        if plain.len() > MAX_EXPANDED_BYTES {
++            return Ok(());
++        }
++        let mut gzip = GzEncoder::new(Vec::new(), Compression::fast());
++        gzip.write_all(&plain)?;
++        let compressed = gzip.finish()?;
++        let size = compressed.len() as u64;
++        let mut index = self.lock()?;
++        if index.generation != generation
++            || size > index.limit
++            || compressed.len() > MAX_ENTRY_BYTES
++        {
++            return Ok(());
++        }
++        if index.entries.contains_key(id) {
++            self.remove(&mut index, id)?;
++        }
++        self.trim(&mut index, size, 1)?;
++        fs::create_dir_all(&self.directory)?;
++        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
++        temporary.write_all(&compressed)?;
++        temporary.persist(self.path(id))?;
++        index.bytes += size;
++        index.entries.insert(
++            id.into(),
++            Entry {
++                size,
++                touched: SystemTime::now(),
++            },
++        );
++        Ok(())
++    }
++
++    pub fn clear(&self) -> Result<()> {
++        let mut index = self.lock()?;
++        index.generation = index.generation.wrapping_add(1);
++        let ids: Vec<_> = index.entries.keys().cloned().collect();
++        for id in ids {
++            self.remove(&mut index, &id)?;
++        }
++        Ok(())
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use serde_json::json;
++
++    #[test]
++    fn uses_a_bounded_compressed_working_set_and_removes_legacy_entries() -> Result<()> {
++        let directory = tempfile::tempdir()?;
++        let legacy = directory.path().join(format!("{:064x}{OLD_SUFFIX}", 1000));
++        let unrelated = directory.path().join("keep-me.txt");
++        fs::write(&legacy, "old cache")?;
++        fs::write(&unrelated, "unrelated file")?;
++        let cache = PublicationCache::new(directory.path().into(), budget(None))?;
++        assert!(!legacy.exists());
++        assert!(unrelated.exists());
++        let publication = json!({"kind": "text", "body": "chapter text".repeat(30_000)});
++        for id in 0..70 {
++            cache.put(&format!("{id:064x}"), &publication)?;
++        }
++        assert_eq!(cache.lock()?.entries.len(), MAX_ENTRIES);
++        assert!(cache.size() < 1024 * 1024);
++        assert_eq!(cache.get(&format!("{:064x}", 69)), Some(publication));
++        cache.resize(1)?;
++        assert_eq!(cache.size(), 0);
++        Ok(())
++    }
++}
+diff --git a/crates/deft-core/src/exchange.rs b/crates/deft-core/src/exchange.rs
+index a0580c2..ec142bb 100644
+--- a/crates/deft-core/src/exchange.rs
++++ b/crates/deft-core/src/exchange.rs
+@@ -836,15 +836,15 @@ mod tests {
+                     "outcome": "abandoned", "endedAt": 1704326400000_i64}
+             ],
+             "annotations": [
+-                {"bookId": "one", "kind": "highlight", "text": "Passage", "note": "Private note",
++                {"id":"sample-highlight", "bookId": "one", "kind": "highlight", "text": "Passage", "note": "Private note",
+                     "locator": {"chapter": 1}, "createdAt": 1704067200000_i64, "updatedAt": 1704067200000_i64}
+             ],
+             "sessions": [
+-                {"bookId": "one", "activeSeconds": 120, "startLocator":{"position":4}, "endLocator":{"position":8}},
+-                {"bookId": "one", "activeSeconds": 960, "browsing": true},
+-                {"bookId": "hidden", "activeSeconds": 480}
++                {"id":"reading-session", "bookId": "one", "activeSeconds": 120, "startLocator":{"position":4}, "endLocator":{"position":8}},
++                {"id":"browsing-session", "bookId": "one", "activeSeconds": 960, "browsing": true},
++                {"id":"hidden-session", "bookId": "hidden", "activeSeconds": 480}
+             ],
+-            "folders":[{"path":"C:/private"}],
++            "folders":[{"id":"private-folder","path":"C:/private"}],
+             "settings":{"hardcoverToken":"my-secret"},
+         })
+     }
+diff --git a/crates/deft-core/src/formats.rs b/crates/deft-core/src/formats.rs
+index 392ce2f..559e387 100644
+--- a/crates/deft-core/src/formats.rs
++++ b/crates/deft-core/src/formats.rs
+@@ -17,6 +17,7 @@ use std::{
+     fs::File,
+     io::{Cursor, Read},
+     path::Path,
++    sync::Arc,
+ };
+ use zip::{result::ZipError, ZipArchive};
+ 
+@@ -28,7 +29,7 @@ const BINARY_LIMIT: u64 = 512 * 1024 * 1024;
+ const XML_LIMIT: u64 = 4 * 1024 * 1024;
+ const PROTECTED: &str = "This file is DRM-protected. Deft can't open it.";
+ 
+-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
++#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+ #[serde(default, rename_all = "camelCase")]
+ pub struct Metadata {
+     pub title: String,
+@@ -42,7 +43,7 @@ pub struct Metadata {
+     pub isbn10: Option<String>,
+     pub isbn13: Option<String>,
+     pub page_count: Option<usize>,
+-    pub cover: Option<String>,
++    pub cover: Option<Arc<str>>,
+     pub protected: bool,
+ }
+ 
+@@ -520,7 +521,7 @@ fn data_image(bytes: &[u8]) -> Option<String> {
+     image_mime(bytes).map(|mime| format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+ }
+ 
+-pub(crate) fn cover_image(bytes: &[u8]) -> Option<String> {
++pub(crate) fn cover_image(bytes: &[u8]) -> Option<Arc<str>> {
+     let mut reader = ImageReader::new(Cursor::new(bytes))
+         .with_guessed_format()
+         .ok()?;
+@@ -529,12 +530,12 @@ pub(crate) fn cover_image(bytes: &[u8]) -> Option<String> {
+     limits.max_image_height = Some(12_000);
+     limits.max_alloc = Some(96 * 1024 * 1024);
+     reader.limits(limits);
+-    let thumbnail = reader.decode().ok()?.thumbnail(400, 400).into_rgb8();
++    let thumbnail = reader.decode().ok()?.thumbnail(320, 400).into_rgb8();
+     let mut encoded = Vec::new();
+-    JpegEncoder::new_with_quality(&mut encoded, 84)
++    JpegEncoder::new_with_quality(&mut encoded, 78)
+         .encode_image(&thumbnail)
+         .ok()?;
+-    data_image(&encoded)
++    data_image(&encoded).map(Arc::from)
+ }
+ 
+ fn chapter_href(index: usize, fragment: Option<&str>) -> String {
+diff --git a/crates/deft-core/src/lib.rs b/crates/deft-core/src/lib.rs
+index 3d49d02..eb19b7b 100644
+--- a/crates/deft-core/src/lib.rs
++++ b/crates/deft-core/src/lib.rs
+@@ -1,4 +1,5 @@
+ // SPDX-License-Identifier: GPL-3.0-only
++pub mod cache;
+ pub mod catalog;
+ pub mod exchange;
+ pub mod formats;
+diff --git a/crates/deft-core/src/matching.rs b/crates/deft-core/src/matching.rs
+index 101d27d..245aab6 100644
+--- a/crates/deft-core/src/matching.rs
++++ b/crates/deft-core/src/matching.rs
+@@ -660,6 +660,7 @@ pub fn cover(url: &str) -> Result<String> {
+             "The provider did not return a supported image"
+         );
+         return crate::formats::cover_image(&bytes)
++            .map(|cover| cover.to_string())
+             .context("Could not decode the provider's cover image");
+     }
+     bail!("Too many cover redirects")
+diff --git a/crates/deft-core/src/model.rs b/crates/deft-core/src/model.rs
+index 054c742..558f818 100644
+--- a/crates/deft-core/src/model.rs
++++ b/crates/deft-core/src/model.rs
+@@ -2,11 +2,14 @@
+ use crate::formats::Metadata;
+ use serde::{Deserialize, Serialize};
+ use serde_json::{json, Value};
+-use std::collections::{BTreeMap, BTreeSet};
++use std::{
++    collections::{BTreeMap, BTreeSet},
++    sync::Arc,
++};
+ 
+ macro_rules! model {
+     ($name:ident { $($fields:tt)* }) => {
+-        #[derive(Clone, Debug, Default, Serialize, Deserialize)]
++        #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+         #[serde(default, rename_all = "camelCase")]
+         pub struct $name { $($fields)* }
+     };
+@@ -45,7 +48,7 @@ model!(Overrides {
+     pub authors: Option<Vec<String>>,
+     pub series: Option<String>,
+     pub series_index: Option<f64>,
+-    pub cover: Option<String>,
++    pub cover: Option<Arc<str>>,
+ });
+ 
+ model!(Book {
+@@ -69,7 +72,7 @@ model!(Book {
+     pub progress: f64,
+     pub locator: Option<Locator>,
+     pub fixed: Value,
+-    pub cover: Option<String>,
++    pub cover: Option<Arc<str>>,
+     pub series: Option<String>,
+     pub series_index: Option<f64>,
+     pub edition: Option<Value>,
+@@ -78,6 +81,14 @@ model!(Book {
+ });
+ 
+ impl Book {
++    pub fn update_cover(&mut self) {
++        self.cover = self
++            .overrides
++            .cover
++            .clone()
++            .or_else(|| self.metadata.cover.clone());
++    }
++
+     pub fn apply_metadata(&mut self) {
+         self.title = self
+             .overrides
+@@ -100,11 +111,7 @@ impl Book {
+             .clone()
+             .or_else(|| self.metadata.series.clone());
+         self.series_index = self.overrides.series_index.or(self.metadata.series_index);
+-        self.cover = self
+-            .overrides
+-            .cover
+-            .clone()
+-            .or_else(|| self.metadata.cover.clone());
++        self.update_cover();
+         self.page_count = self.metadata.page_count;
+         self.protected = self.metadata.protected;
+         self.missing = self.files.iter().all(|file| file.missing);
+@@ -135,7 +142,7 @@ model!(Category {
+     pub type_ids: Vec<String>,
+     pub members: Vec<Member>,
+     pub rating: Option<f64>,
+-    pub cover: Option<String>,
++    pub cover: Option<Arc<str>>,
+     pub order_mode: String,
+     pub sort_reversed: bool,
+     pub auto_created: bool,
+@@ -228,12 +235,12 @@ impl Default for State {
+                 built_in: true,
+             }],
+             settings: json!({
+-                "formats": FORMATS, "seriesAutoFill": true, "prepareInBackground": true,
+-                "cacheLimitMb": 1024, "appTheme": "system", "celebrations": true,
++                "formats": FORMATS, "seriesAutoFill": true, "prepareInBackground": false,
++                "cacheLimitMb": 128, "appTheme": "system", "celebrations": true,
+                 "reflowIdleMinutes": 5, "fixedIdleMinutes": 10, "minSessionSeconds": 60,
+                 "streakMinutes": 1, "trackingIndicator": false, "goals": {},
+                 "readerFont": "Literata", "readerFontSize": 19, "readerLineSpacing": 1.65,
+-                "readerTheme": "sepia", "readerKeepAwake": true,
++                "readerTheme": "sepia", "readerKeepAwake": true, "readerProgressDisplay": "percentage",
+                 "matchingOpenLibrary": true, "matchingGoogleBooks": true, "matchingHardcover": true,
+                 "backupEnabled": false, "backupKeep": 4
+             }),
+diff --git a/crates/deft-core/src/store.rs b/crates/deft-core/src/store.rs
+index 8c99928..236bb4a 100644
+--- a/crates/deft-core/src/store.rs
++++ b/crates/deft-core/src/store.rs
+@@ -1,14 +1,43 @@
+ // SPDX-License-Identifier: GPL-3.0-only
+ use crate::model::State;
+-use anyhow::{bail, Context, Result};
+-use rusqlite::{params, Connection, OptionalExtension};
+-use serde_json::{Map, Value};
+-use std::{fs, path::Path, time::Duration};
++use anyhow::{bail, ensure, Context, Result};
++use rusqlite::{params, Connection, OptionalExtension, Transaction};
++use serde::Serialize;
++use serde_json::{json, Map, Value};
++use std::{
++    collections::{HashMap, HashSet},
++    fs,
++    path::Path,
++    time::Duration,
++};
+ 
+-const SCHEMA: i64 = 1;
++const SCHEMA: i64 = 2;
++const COLLECTIONS: &[&str] = &[
++    "books",
++    "authors",
++    "categories",
++    "types",
++    "annotations",
++    "readThroughs",
++    "sessions",
++    "folders",
++];
++
++#[derive(Default, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct LibraryDelta {
++    pub rows: Map<String, Value>,
++    pub fields: Map<String, Value>,
++    #[serde(skip)]
++    pub bytes: usize,
++}
++
++impl LibraryDelta {
++    pub fn is_empty(&self) -> bool {
++        self.rows.is_empty() && self.fields.is_empty()
++    }
++}
+ 
+-/// SQLite stores one versioned, transactional record per collection. Related updates
+-/// (such as a reading session, read-through and locator) commit together.
+ pub struct Store {
+     connection: Connection,
+ }
+@@ -18,17 +47,153 @@ fn migrate(connection: &mut Connection) -> Result<()> {
+     if version > SCHEMA {
+         bail!("This data was created by a newer version of Deft.");
+     }
+-    if version == 0 {
+-        let transaction = connection.transaction()?;
+-        transaction.execute_batch(
+-            "CREATE TABLE IF NOT EXISTS records (
+-                key TEXT PRIMARY KEY NOT NULL,
+-                payload TEXT NOT NULL CHECK (json_valid(payload))
+-             ) WITHOUT ROWID;
+-             PRAGMA user_version = 1;",
++    if version == SCHEMA {
++        return Ok(());
++    }
++    let transaction = connection.transaction()?;
++    transaction.execute_batch(
++        "CREATE TABLE IF NOT EXISTS records (
++            key TEXT PRIMARY KEY NOT NULL,
++            payload TEXT NOT NULL CHECK (json_valid(payload))
++         ) WITHOUT ROWID;
++         CREATE TABLE items (
++            collection TEXT NOT NULL,
++            id TEXT NOT NULL,
++            ordinal INTEGER NOT NULL,
++            payload TEXT NOT NULL CHECK (json_valid(payload)),
++            PRIMARY KEY(collection,id)
++         ) WITHOUT ROWID;",
++    )?;
++    for collection in COLLECTIONS {
++        transaction.execute(
++            "INSERT INTO items(collection,id,ordinal,payload)
++             SELECT records.key, json_extract(entry.value,'$.id'), entry.key,
++               CASE WHEN records.key='books' THEN json_remove(entry.value,'$.cover') ELSE entry.value END
++             FROM records, json_each(records.payload) AS entry WHERE records.key=?1",
++            [collection],
+         )?;
+-        transaction.commit()?;
++        transaction.execute("DELETE FROM records WHERE key=?1", [collection])?;
++    }
++    if version == 0 {
++        for (ordinal, entry) in State::default().types.iter().enumerate() {
++            transaction.execute(
++                "INSERT OR IGNORE INTO items VALUES ('types',?1,?2,?3)",
++                params![entry.id, ordinal, serde_json::to_string(entry)?],
++            )?;
++        }
++    }
++    // The former standard budget matched the default baked into every v1 library.
++    transaction.execute(
++        "UPDATE records SET payload=json_set(payload,'$.cacheLimitMb',128)
++         WHERE key='settings' AND json_extract(payload,'$.cacheLimitMb')=1024",
++        [],
++    )?;
++    transaction.execute(
++        "INSERT OR IGNORE INTO records(key,payload) VALUES ('settings', ?1)",
++        [serde_json::to_string(&State::default().settings)?],
++    )?;
++    transaction.pragma_update(None, "user_version", SCHEMA)?;
++    transaction.commit()?;
++    Ok(())
++}
++
++fn public_book(value: &mut Value) {
++    if let Some(meta) = value["metadata"].as_object_mut() {
++        meta.remove("cover");
++    }
++    if let Some(overrides) = value["overrides"].as_object_mut() {
++        overrides.remove("cover");
++    }
++}
++
++pub fn public_snapshot(state: &State) -> Result<Value> {
++    let mut snapshot = serde_json::to_value(state)?;
++    if let Some(books) = snapshot["books"].as_array_mut() {
++        books.iter_mut().for_each(public_book);
++    }
++    if let Some(object) = snapshot.as_object_mut() {
++        for key in [
++            "authorAliases",
++            "authorNames",
++            "seriesAliases",
++            "seriesDismissed",
++        ] {
++            object.remove(key);
++        }
++    }
++    Ok(snapshot)
++}
++
++fn sync_rows<T: Serialize + PartialEq>(
++    transaction: &Transaction<'_>,
++    collection: &str,
++    previous: &[T],
++    next: &[T],
++    id: impl Fn(&T) -> &str,
++    delta: &mut LibraryDelta,
++) -> Result<()> {
++    if previous == next {
++        return Ok(());
++    }
++    let mut old: HashMap<_, _> = previous
++        .iter()
++        .enumerate()
++        .map(|(index, row)| (id(row), (index, row)))
++        .collect();
++    let mut identifiers = HashSet::with_capacity(next.len());
++    let mut added_or_changed = Vec::new();
++    let mut order_changed = previous.len() != next.len();
++    let mut put = transaction.prepare_cached(
++        "INSERT INTO items(collection,id,ordinal,payload) VALUES (?1,?2,?3,?4)
++         ON CONFLICT(collection,id) DO UPDATE SET ordinal=excluded.ordinal,payload=excluded.payload",
++    )?;
++    let mut reorder =
++        transaction.prepare_cached("UPDATE items SET ordinal=?3 WHERE collection=?1 AND id=?2")?;
++    for (index, row) in next.iter().enumerate() {
++        let row_id = id(row);
++        ensure!(
++            !row_id.is_empty() && identifiers.insert(row_id),
++            "Invalid or duplicate identifier in {collection}."
++        );
++        let before = old.remove(row_id);
++        let moved = before.is_none_or(|(prior_index, _)| prior_index != index);
++        order_changed |= moved;
++        if before.is_none_or(|(_, prior)| prior != row) {
++            let mut serialized = serde_json::to_value(row)?;
++            let cover = if collection == "books" {
++                serialized
++                    .as_object_mut()
++                    .and_then(|object| object.remove("cover"))
++            } else {
++                None
++            };
++            let payload = serde_json::to_string(&serialized)?;
++            put.execute(params![collection, id(row), index, payload])?;
++            delta.bytes = delta.bytes.saturating_add(payload.len());
++            if collection == "books" {
++                public_book(&mut serialized);
++                serialized["cover"] = cover.unwrap_or(Value::Null);
++            }
++            added_or_changed.push(serialized);
++        } else if moved {
++            reorder.execute(params![collection, id(row), index])?;
++        }
++    }
++    let removed: Vec<_> = old.into_keys().collect();
++    let mut delete =
++        transaction.prepare_cached("DELETE FROM items WHERE collection=?1 AND id=?2")?;
++    for row_id in &removed {
++        delete.execute(params![collection, row_id])?;
+     }
++    let order = order_changed.then(|| next.iter().map(id).collect::<Vec<_>>());
++    delta.bytes += removed.iter().map(|id| id.len()).sum::<usize>();
++    if let Some(ids) = &order {
++        delta.bytes += ids.iter().map(|id| id.len()).sum::<usize>();
++    }
++    delta.rows.insert(
++        collection.into(),
++        json!({"upsert": added_or_changed, "remove": removed, "order": order}),
++    );
+     Ok(())
+ }
+ 
+@@ -43,46 +208,89 @@ impl Store {
+         Ok(Self { connection })
+     }
+ 
+-    fn read(connection: &Connection) -> Result<State> {
+-        let mut statement = connection.prepare("SELECT key, payload FROM records")?;
+-        let rows = statement.query_map([], |row| {
+-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+-        })?;
++    pub fn load(&self) -> Result<State> {
+         let mut object = Map::new();
+-        for row in rows {
++        let mut statement = self.connection.prepare("SELECT key,payload FROM records")?;
++        for row in statement.query_map([], |row| {
++            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
++        })? {
+             let (key, payload) = row?;
+             object.insert(key, serde_json::from_str(&payload)?);
+         }
+-        let mut state: State = serde_json::from_value(Value::Object(object))?;
+-        if !state.settings.is_object() {
+-            bail!("The backup contains invalid settings.");
++        for collection in COLLECTIONS {
++            object.insert((*collection).into(), Value::Array(Vec::new()));
++        }
++        let mut statement = self
++            .connection
++            .prepare("SELECT collection,payload FROM items ORDER BY collection,ordinal")?;
++        for row in statement.query_map([], |row| {
++            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
++        })? {
++            let (collection, payload) = row?;
++            if let Some(entries) = object.get_mut(&collection).and_then(Value::as_array_mut) {
++                entries.push(serde_json::from_str(&payload)?);
++            }
+         }
+-        let defaults = State::default();
+-        let settings = state.settings.as_object_mut().expect("checked above");
+-        for (key, value) in defaults.settings.as_object().expect("settings defaults") {
++        let mut state: State = serde_json::from_value(Value::Object(object))?;
++        let settings = state
++            .settings
++            .as_object_mut()
++            .context("The database contains invalid settings")?;
++        for (key, value) in State::default()
++            .settings
++            .as_object()
++            .expect("settings defaults")
++        {
+             settings.entry(key.clone()).or_insert_with(|| value.clone());
+         }
++        state.books.iter_mut().for_each(|book| book.update_cover());
+         Ok(state)
+     }
+ 
+-    pub fn load(&self) -> Result<State> {
+-        Self::read(&self.connection)
++    pub fn save(&mut self, state: &State) -> Result<()> {
++        let previous = self.load()?;
++        self.save_updates(&previous, state)?;
++        Ok(())
+     }
+ 
+-    pub fn save(&mut self, state: &State) -> Result<()> {
+-        let serialized = serde_json::to_value(state)?;
++    /// Writes only changed items and keeps related changes in a single transaction.
++    /// Returned frontend rows omit duplicate artwork and internal aliases.
++    pub fn save_updates(&mut self, previous: &State, next: &State) -> Result<LibraryDelta> {
+         let transaction = self.connection.transaction()?;
+-        for (key, value) in serialized.as_object().expect("State is an object") {
+-            let payload = serde_json::to_string(value)?;
+-            transaction.execute(
+-                "INSERT INTO records(key,payload) VALUES (?1,?2)
+-                 ON CONFLICT(key) DO UPDATE SET payload=excluded.payload
+-                 WHERE payload<>excluded.payload",
+-                params![key, payload],
+-            )?;
++        let mut delta = LibraryDelta::default();
++        macro_rules! rows {
++            ($($field:ident : $key:literal),* $(,)?) => {
++                $(sync_rows(&transaction, $key, &previous.$field, &next.$field, |row| &row.id, &mut delta)?;)*
++            };
++        }
++        rows!(books: "books", authors: "authors", categories: "categories", types: "types",
++            annotations: "annotations", read_throughs: "readThroughs", sessions: "sessions", folders: "folders");
++        let mut write = transaction.prepare_cached(
++            "INSERT INTO records(key,payload) VALUES (?1,?2)
++             ON CONFLICT(key) DO UPDATE SET payload=excluded.payload",
++        )?;
++        macro_rules! field {
++            ($field:ident : $key:literal, $public:expr) => {
++                if previous.$field != next.$field {
++                    let value = serde_json::to_value(&next.$field)?;
++                    let encoded = serde_json::to_string(&value)?;
++                    write.execute(params![$key, encoded])?;
++                    if $public {
++                        delta.bytes += encoded.len();
++                        delta.fields.insert($key.into(), value);
++                    }
++                }
++            };
+         }
++        field!(settings: "settings", true);
++        field!(last_scan: "lastScan", true);
++        field!(author_aliases: "authorAliases", false);
++        field!(author_names: "authorNames", false);
++        field!(series_aliases: "seriesAliases", false);
++        field!(series_dismissed: "seriesDismissed", false);
++        drop(write);
+         transaction.commit()?;
+-        Ok(())
++        Ok(delta)
+     }
+ 
+     pub fn backup(&self, directory: &Path) -> Result<Vec<u8>> {
+@@ -93,8 +301,6 @@ impl Store {
+         Ok(fs::read(file)?)
+     }
+ 
+-    /// Validate and fully decode a replacement away from the running database.
+-    /// Applying the resulting state is a normal atomic write.
+     pub fn decode_backup(directory: &Path, bytes: &[u8]) -> Result<State> {
+         if !bytes.starts_with(b"SQLite format 3\0") {
+             bail!("The archive does not contain a Deft database.");
+@@ -102,6 +308,13 @@ impl Store {
+         let temporary = tempfile::tempdir_in(directory)?;
+         let path = temporary.path().join("restore.sqlite3");
+         fs::write(&path, bytes)?;
++        let version_bytes: [u8; 4] = bytes
++            .get(60..64)
++            .context("Incomplete Deft database")?
++            .try_into()?;
++        if u32::from_be_bytes(version_bytes) == 0 {
++            bail!("The backup does not contain a versioned Deft database.");
++        }
+         let store = Self::open(&path)?;
+         let healthy: String =
+             store
+@@ -127,26 +340,86 @@ impl Store {
+ mod tests {
+     use super::*;
+     use crate::model::Book;
++
+     #[test]
+-    fn migrates_empty_database_and_round_trips_a_consistent_backup() -> Result<()> {
++    fn migrates_v1_rows_and_round_trips_a_consistent_backup() -> Result<()> {
+         let directory = tempfile::tempdir()?;
+         let path = directory.path().join("app.db");
+-        Connection::open(&path)?;
++        let legacy = Connection::open(&path)?;
++        legacy.execute_batch(
++            r#"CREATE TABLE records(key TEXT PRIMARY KEY NOT NULL,payload TEXT NOT NULL);
++             INSERT INTO records VALUES ('books','[{"id":"old","metadata":{"cover":"data:image/jpeg;base64,cover"},"favorite":true}]');
++             INSERT INTO records VALUES ('settings','{"cacheLimitMb":1024,"readerFontSize":23}');
++             PRAGMA user_version=1;"#,
++        )?;
++        drop(legacy);
+         let mut store = Store::open(&path)?;
+         let mut state = store.load()?;
++        assert_eq!(state.books[0].id, "old");
++        assert!(state.books[0].favorite);
++        assert!(state.books[0].cover.is_some());
++        assert_eq!(state.settings["cacheLimitMb"], 128);
++        assert_eq!(state.settings["readerFontSize"], 23);
+         state.books.push(Book {
+-            id: "sha".into(),
++            id: "new".into(),
+             ..Book::default()
+         });
+         store.save(&state)?;
+         let backup = store.backup(directory.path())?;
+-        assert_eq!(
+-            Store::decode_backup(directory.path(), &backup)?.books[0].id,
+-            "sha"
+-        );
++        let restored = Store::decode_backup(directory.path(), &backup)?;
++        assert_eq!(restored.books.len(), 2);
++        assert_eq!(restored.books[0].id, "old");
++        assert_eq!(restored.books[1].id, "new");
+         let connection = Connection::open(path)?;
+         connection.pragma_update(None, "user_version", SCHEMA + 1)?;
+         assert!(Store::open(&directory.path().join("app.db")).is_err());
+         Ok(())
+     }
++
++    #[test]
++    fn edits_and_restores_use_individual_rows_in_order() -> Result<()> {
++        let directory = tempfile::tempdir()?;
++        let mut store = Store::open(&directory.path().join("app.db"))?;
++        let mut state = store.load()?;
++        let cover: std::sync::Arc<str> =
++            format!("data:image/jpeg;base64,{}", "Q".repeat(16 * 1024)).into();
++        state.books = (0..1000)
++            .map(|index| {
++                let mut book = Book {
++                    id: index.to_string(),
++                    ..Book::default()
++                };
++                book.metadata.cover = Some(cover.clone());
++                book.update_cover();
++                book
++            })
++            .collect();
++        store.save(&state)?;
++
++        let mut edited = state.clone();
++        edited.books[700].favorite = true;
++        let before: usize = store
++            .connection
++            .query_row("SELECT total_changes()", [], |row| row.get(0))?;
++        let delta = store.save_updates(&state, &edited)?;
++        let after: usize = store
++            .connection
++            .query_row("SELECT total_changes()", [], |row| row.get(0))?;
++        assert_eq!(after - before, 1);
++        assert_eq!(delta.rows["books"]["upsert"].as_array().unwrap().len(), 1);
++        assert_eq!(delta.rows["books"]["upsert"][0]["id"], "700");
++        assert!(delta.rows["books"]["order"].is_null());
++        assert!(serde_json::to_vec(&delta)?.len() < 20 * 1024);
++        assert!(delta.rows["books"]["upsert"][0]["metadata"]["cover"].is_null());
++        assert!(store.load()?.books[700].favorite);
++
++        let mut replaced = edited.clone();
++        replaced.books.remove(20);
++        replaced.books.swap(0, 1);
++        let delta = store.save_updates(&edited, &replaced)?;
++        assert_eq!(delta.rows["books"]["remove"], json!(["20"]));
++        assert_eq!(delta.rows["books"]["order"][0], "1");
++        assert_eq!(store.load()?.books, replaced.books);
++        Ok(())
++    }
+ }
+diff --git a/docs/desktop-implementation.md b/docs/desktop-implementation.md
+index bf22fea..db2d2dc 100644
+--- a/docs/desktop-implementation.md
++++ b/docs/desktop-implementation.md
+@@ -11,7 +11,7 @@ The original design and roadmap are preserved under [plans](../plans). This docu
+ | M5 · annotations | Highlights, notes and bookmarks, in-book search, global and per-book filters, fixed page notes, location jumps and Markdown export. |
+ | M6 · statistics | Date ranges, charts, heatmaps, timezone-aware sessions, streaks, goals, author/category/book summaries and year in review. |
+ | M7 · fixed layout | Local PDF.js worker, DjVu WASM worker and CBZ image source. Fit modes, scroll/paged view, zoom, inversion, page notes, PDF passwords, PDF/DjVu outlines and CBZ RTL. |
+-| M8 · conversion | TXT decoding, FB2/FB2 ZIP and Kindle MOBI/KF8 processing, using the same text reader. The cache is versioned by content hash with size and LRU limits. |
++| M8 · conversion | TXT decoding, FB2/FB2 ZIP and Kindle MOBI/KF8 processing, using the same text reader. The compressed cache is keyed by content hash and evicts the least recently used book. It keeps up to 64 conversions and defaults to 128 MB. |
+ | M9 · exchange | Explicit matching and cover download, Goodreads CSV, Deft Reading Profile schema/sample, SQLite backup/restore and configurable weekly rotation. |
+ | M10 · packaging | Windows x64 NSIS, MSI and portable ZIP workflow, optional certificate signing, tag-based releases, GitHub Pages product site, keyboard navigation, reduced-motion support and first-run guidance. |
+ 
+@@ -21,7 +21,7 @@ The original design and roadmap are preserved under [plans](../plans). This docu
+ | --- | --- |
+ | Tauri 2, Rust and React | Keep file access, network and durable data in Rust. Support desktop controls on the platform WebView. |
+ | Keep `com.kmab.deft` | Preserve the product identity from the approved design. |
+-| SQLite records by collection | Save related state in one transaction and keep backups consistent. The schema version is checked during restore. |
++| SQLite records per library item | Save related state in one transaction, update only changed rows, and keep backups consistent. Restore checks and migrates the schema. |
+ | Native local directories and file dialogs | Replace Android's Storage Access Framework and share sheet. On a different Windows computer or drive letter, add the new folders and rescan after restore. |
+ | PDF.js and DjVu-rs | Bundle offline decoders and PDF password support with the same viewer controls. |
+ | Normalized local reflow | Render structurally sanitized content and keep reading controls shared across EPUB, FB2, TXT and Kindle. Store an offset and normalized book progression so reopening survives layout changes. |
+diff --git a/docs/windows-acceptance.md b/docs/windows-acceptance.md
+index 8186f46..27761c8 100644
+--- a/docs/windows-acceptance.md
++++ b/docs/windows-acceptance.md
+@@ -14,6 +14,8 @@ Use a Windows 10/11 x64 test computer and copies of your ebooks. Keep the origin
+ 
+ ## Reading and organization
+ 
++- [ ] Open an existing Deft 0.1.1 library with a populated conversion cache. Check that reading history and categories survive the upgrade and that Settings → Storage shows the smaller conversion cache. Test a favorite and a category edit, then relaunch and check both changes.
++- [ ] In Reader → Page, switch **progress display** between percentage and page number. Verify actual page numbers on a PDF or comic and estimated pages on a reflowable ebook.
+ - [ ] Open the library with enough books to overflow a 700 × 520 window. Scroll to both ends and verify that the sidebar and top bar stay fixed and the workspace stays within the window.
+ - [ ] Change the reader theme or text size in one book, then open another and restart the app. Check that both books and Settings show the same preference. For fixed-layout books, verify the same behavior for fit and inversion.
+ - [ ] Favorite a book, create and edit a category, confirm a suggested member, and restart to verify persistence. Reverse the library and category sort order.
+diff --git a/package-lock.json b/package-lock.json
+index e2ba4c5..75b842a 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "deft-desktop",
+-  "version": "0.1.1",
++  "version": "0.1.2",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "deft-desktop",
+-      "version": "0.1.1",
++      "version": "0.1.2",
+       "license": "GPL-3.0-only",
+       "dependencies": {
+         "@fontsource/atkinson-hyperlegible": "^5.3.0",
+diff --git a/package.json b/package.json
+index fe927a1..21caf21 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "deft-desktop",
+-  "version": "0.1.1",
++  "version": "0.1.2",
+   "description": "An offline ebook reader and reading tracker",
+   "license": "GPL-3.0-only",
+   "type": "module",
+diff --git a/src-tauri/src/desktop.rs b/src-tauri/src/desktop.rs
+index 4111134..3d28ac7 100644
+--- a/src-tauri/src/desktop.rs
++++ b/src-tauri/src/desktop.rs
+@@ -1,8 +1,16 @@
+ // SPDX-License-Identifier: GPL-3.0-only
+ use anyhow::{anyhow, ensure, Result};
+-use deft_core::{exchange, model::State, now, scanner, store::Store, tracking::Visit};
+-use serde_json::Value;
++use deft_core::{
++    cache::{self, PublicationCache},
++    exchange,
++    model::State,
++    now, scanner,
++    store::{public_snapshot, LibraryDelta, Store},
++    tracking::Visit,
++};
++use serde_json::{json, Value};
+ use std::{
++    collections::VecDeque,
+     fs,
+     path::{Path, PathBuf},
+     sync::{
+@@ -15,31 +23,60 @@ pub struct Runtime {
+     state: State,
+     store: Store,
+     visit: Option<Visit>,
++    revision: u64,
++    changes: VecDeque<(u64, LibraryDelta)>,
++    change_bytes: usize,
++}
++
++impl Runtime {
++    fn record(&mut self, delta: LibraryDelta) {
++        if delta.is_empty() {
++            return;
++        }
++        const HISTORY_BYTES: usize = 4 * 1024 * 1024;
++        self.revision += 1;
++        if delta.bytes > HISTORY_BYTES {
++            self.changes.clear();
++            self.change_bytes = 0;
++            return;
++        }
++        self.change_bytes += delta.bytes;
++        self.changes.push_back((self.revision, delta));
++        while self.changes.len() > 64 || self.change_bytes > HISTORY_BYTES {
++            if let Some((_, oldest)) = self.changes.pop_front() {
++                self.change_bytes -= oldest.bytes;
++            }
++        }
++    }
+ }
+ 
+ pub struct Desktop {
+     runtime: Mutex<Runtime>,
+     scanning: Mutex<()>,
+     closing: AtomicBool,
+-    pub cache_lock: Mutex<()>,
++    pub cache: PublicationCache,
+     pub data: PathBuf,
+ }
+ 
+ impl Desktop {
+     pub fn new(data: PathBuf) -> Result<Self> {
+         fs::create_dir_all(&data)?;
+-        let mut store = Store::open(&data.join("deft.sqlite3"))?;
++        let store = Store::open(&data.join("deft.sqlite3"))?;
+         let state = store.load()?;
+-        store.save(&state)?;
++        let limit = cache::budget(state.settings["cacheLimitMb"].as_u64());
++        let cache = PublicationCache::new(data.join("publications"), limit)?;
+         Ok(Self {
+             runtime: Mutex::new(Runtime {
+                 state,
+                 store,
+                 visit: None,
++                revision: 0,
++                changes: VecDeque::new(),
++                change_bytes: 0,
+             }),
+             scanning: Mutex::new(()),
+             closing: AtomicBool::new(false),
+-            cache_lock: Mutex::new(()),
++            cache,
+             data,
+         })
+     }
+@@ -71,15 +108,49 @@ impl Desktop {
+         change: impl FnOnce(&mut State, &mut Option<Visit>) -> Result<T>,
+     ) -> Result<T> {
+         let mut runtime = self.lock()?;
+-        let mut next = runtime.state.clone();
+-        let mut visit = runtime.visit.clone();
+-        let result = change(&mut next, &mut visit)?;
+-        runtime.store.save(&next)?;
+-        runtime.state = next;
+-        runtime.visit = visit;
++        let Runtime {
++            state,
++            store,
++            visit,
++            ..
++        } = &mut *runtime;
++        let mut next = state.clone();
++        let mut next_visit = visit.clone();
++        let result = change(&mut next, &mut next_visit)?;
++        let limit_changed = state.settings["cacheLimitMb"] != next.settings["cacheLimitMb"];
++        let limit = cache::budget(next.settings["cacheLimitMb"].as_u64());
++        let delta = store.save_updates(state, &next)?;
++        *state = next;
++        *visit = next_visit;
++        runtime.record(delta);
++        if limit_changed {
++            let _ = self.cache.resize(limit);
++        }
+         Ok(result)
+     }
+ 
++    pub fn snapshot(&self, since: Option<u64>) -> Result<Value> {
++        let runtime = self.lock()?;
++        let earliest = runtime
++            .changes
++            .front()
++            .map_or(runtime.revision, |(version, _)| version - 1);
++        let cache_bytes = self.cache.size();
++        if let Some(since) = since.filter(|since| (earliest..=runtime.revision).contains(since)) {
++            let changes: Vec<_> = runtime
++                .changes
++                .iter()
++                .filter_map(|(version, delta)| (*version > since).then_some(delta))
++                .collect();
++            return Ok(
++                json!({"revision": runtime.revision, "changes": changes, "cacheBytes": cache_bytes}),
++            );
++        }
++        let mut full = public_snapshot(&runtime.state)?;
++        full["cacheBytes"] = cache_bytes.into();
++        Ok(json!({"revision": runtime.revision, "full": full}))
++    }
++
+     pub fn scan(&self, force: bool) -> Result<scanner::ScanReport> {
+         let _scan = self
+             .scanning
+@@ -98,9 +169,14 @@ impl Desktop {
+     }
+ 
+     pub fn archive(&self) -> Result<Vec<u8>> {
+-        let runtime = self.lock()?;
+-        let database = runtime.store.backup(&self.data)?;
+-        exchange::backup(&serde_json::to_value(&runtime.state)?, &database)
++        let (database, manifest) = {
++            let runtime = self.lock()?;
++            (
++                runtime.store.backup(&self.data)?,
++                json!({"folders": runtime.state.folders}),
++            )
++        };
++        exchange::backup(&manifest, &database)
+     }
+ 
+     pub fn restore(&self, bytes: &[u8]) -> Result<Vec<String>> {
+@@ -115,10 +191,19 @@ impl Desktop {
+             folder.available = Path::new(&folder.path).is_dir();
+         }
+         replacement.rebuild_authors();
++        let limit = cache::budget(replacement.settings["cacheLimitMb"].as_u64());
+         let mut runtime = self.lock()?;
+-        runtime.store.save(&replacement)?;
+-        runtime.state = replacement;
+-        runtime.visit = None;
++        let Runtime {
++            state,
++            store,
++            visit,
++            ..
++        } = &mut *runtime;
++        let delta = store.save_updates(state, &replacement)?;
++        *state = replacement;
++        *visit = None;
++        runtime.record(delta);
++        let _ = self.cache.resize(limit);
+         Ok(folders)
+     }
+ 
+@@ -177,13 +262,3 @@ pub fn keep_awake(on: bool) {
+ }
+ #[cfg(not(windows))]
+ pub fn keep_awake(_: bool) {}
+-
+-pub fn cache_bytes(path: &Path) -> u64 {
+-    fs::read_dir(path)
+-        .into_iter()
+-        .flatten()
+-        .flatten()
+-        .filter_map(|entry| entry.metadata().ok().filter(fs::Metadata::is_file))
+-        .map(|metadata| metadata.len())
+-        .sum()
+-}
+diff --git a/src-tauri/src/main.rs b/src-tauri/src/main.rs
+index 1969b71..4b9071d 100644
+--- a/src-tauri/src/main.rs
++++ b/src-tauri/src/main.rs
+@@ -124,9 +124,9 @@ fn run() -> Result<()> {
+                 if let Ok(report) = desktop.scan(false) {
+                     if !report.skipped {
+                         let _ = worker.emit("deft:scan", &report);
+-                        publication::prewarm(&desktop);
+                     }
+                 }
++                publication::prewarm(&desktop);
+                 loop {
+                     if let Err(error) = desktop.weekly_backup() {
+                         let _ = worker.emit(
+diff --git a/src-tauri/src/operations.rs b/src-tauri/src/operations.rs
+index 707e4be..16deb8b 100644
+--- a/src-tauri/src/operations.rs
++++ b/src-tauri/src/operations.rs
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: GPL-3.0-only
+ use crate::{
+-    desktop::{cache_bytes, keep_awake, Desktop},
++    desktop::{keep_awake, Desktop},
+     publication,
+ };
+ use anyhow::{anyhow, bail, ensure, Context, Result};
+@@ -54,11 +54,7 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
+     let app = window.app_handle();
+     let desktop = app.state::<Desktop>();
+     match op {
+-        "snapshot" => {
+-            let mut snapshot = desktop.read(|state| result(state))?;
+-            snapshot["cacheBytes"] = cache_bytes(&desktop.data.join("publications")).into();
+-            Ok(snapshot)
+-        }
++        "snapshot" => desktop.snapshot(args["since"].as_u64()),
+         "scan" => scan(window, &desktop, args["force"].as_bool().unwrap_or(true)),
+         "folderAdd" => {
+             let Some(path) = selected(
+@@ -139,7 +135,7 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
+             scan(window, &desktop, true)
+         }
+         "cacheClear" => {
+-            publication::clear(&desktop)?;
++            desktop.cache.clear()?;
+             Ok(Value::Null)
+         }
+         "settingsPatch" => {
+@@ -401,10 +397,10 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
+             desktop.change(|state| {
+                 if op == "bookCover" {
+                     let book = catalog::book_mut(state, text(&args, "bookId")?)?;
+-                    book.overrides.cover = Some(cover);
++                    book.overrides.cover = Some(cover.into());
+                     book.apply_metadata();
+                 } else {
+-                    catalog::category_mut(state, text(&args, "id")?)?.cover = Some(cover);
++                    catalog::category_mut(state, text(&args, "id")?)?.cover = Some(cover.into());
+                 }
+                 Ok(Value::Null)
+             })
+@@ -593,7 +589,7 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
+                         == Some(url.as_str()),
+                     "The matched edition changed before the cover finished downloading."
+                 );
+-                book.overrides.cover = Some(cover);
++                book.overrides.cover = Some(cover.into());
+                 book.apply_metadata();
+                 Ok(Value::Null)
+             })
+@@ -640,12 +636,8 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
+ 
+ fn scan(window: &WebviewWindow, desktop: &Desktop, force: bool) -> Result<Value> {
+     let report = desktop.scan(force)?;
+-    let handle = window.app_handle().clone();
+     if !report.skipped {
+         let _ = window.emit("deft:scan", &report);
+-        tauri::async_runtime::spawn_blocking(move || {
+-            publication::prewarm(&handle.state::<Desktop>())
+-        });
+     }
+     result(report)
+ }
+diff --git a/src-tauri/src/publication.rs b/src-tauri/src/publication.rs
+index c404a7d..c99c7dd 100644
+--- a/src-tauri/src/publication.rs
++++ b/src-tauri/src/publication.rs
+@@ -1,32 +1,18 @@
+ // SPDX-License-Identifier: GPL-3.0-only
+-use crate::desktop::{cache_bytes, Desktop};
+-use anyhow::{anyhow, ensure, Result};
++use crate::desktop::Desktop;
++use anyhow::{ensure, Result};
+ use deft_core::{
+     formats::{self, Publication},
+     model::Book,
+     scanner,
+ };
+ use serde_json::Value;
+-use std::{
+-    fs,
+-    io::Write,
+-    path::{Path, PathBuf},
+-    time::SystemTime,
+-};
++use std::fs;
+ 
+-const CACHE_VERSION: u32 = 1;
+ const MAX_ASSET_BYTES: u64 = 512 * 1024 * 1024;
+ const MAX_CONVERSION_BYTES: usize = 384 * 1024 * 1024;
+ const MAX_CONVERSION_CHAPTERS: usize = 12_000;
+ 
+-fn cache_file(directory: &Path, book: &Book) -> Result<PathBuf> {
+-    ensure!(
+-        book.id.len() == 64 && book.id.bytes().all(|c| c.is_ascii_hexdigit()),
+-        "Invalid book identifier."
+-    );
+-    Ok(directory.join(format!("{}-v{CACHE_VERSION}.json", book.id)))
+-}
+-
+ pub fn open(desktop: &Desktop, book: &Book) -> Result<Value> {
+     ensure!(
+         !book.protected,
+@@ -34,30 +20,14 @@ pub fn open(desktop: &Desktop, book: &Book) -> Result<Value> {
+     );
+     let path = scanner::source(book)?;
+     let cacheable = matches!(book.format.as_str(), "epub" | "txt" | "fb2");
+-    let directory = desktop.data.join("publications");
+-    let target = cache_file(&directory, book)?;
+     if cacheable || kindle(book) {
+-        if let Ok(bytes) = fs::read(&target) {
+-            if let Ok(value) = serde_json::from_slice(&bytes) {
+-                let _ = fs::OpenOptions::new()
+-                    .write(true)
+-                    .open(&target)
+-                    .and_then(|file| file.set_modified(SystemTime::now()));
+-                return Ok(value);
+-            }
++        if let Some(value) = desktop.cache.get(&book.id) {
++            return Ok(value);
+         }
+     }
+     let publication = serde_json::to_value(formats::open(&path, &book.format)?)?;
+     if cacheable {
+-        let limit =
+-            desktop.read(|state| Ok(state.settings["cacheLimitMb"].as_u64().unwrap_or(1024)))?;
+-        let _ = save_cache(
+-            desktop,
+-            &directory,
+-            &target,
+-            &publication,
+-            limit.min(16_384) * 1024 * 1024,
+-        );
++        let _ = desktop.cache.put(&book.id, &publication);
+     }
+     Ok(publication)
+ }
+@@ -96,18 +66,9 @@ pub fn cache_kindle(desktop: &Desktop, book: &Book, publication: Publication) ->
+     );
+     let path = scanner::source(book)?;
+     formats::open(&path, &book.format)?;
+-    let limit =
+-        desktop.read(|state| Ok(state.settings["cacheLimitMb"].as_u64().unwrap_or(1024)))?;
+-    let directory = desktop.data.join("publications");
+-    let target = cache_file(&directory, book)?;
+-    let publication = serde_json::to_value(publication)?;
+-    save_cache(
+-        desktop,
+-        &directory,
+-        &target,
+-        &publication,
+-        limit.min(16_384) * 1024 * 1024,
+-    )
++    desktop
++        .cache
++        .put(&book.id, &serde_json::to_value(publication)?)
+ }
+ 
+ pub fn asset(book: &Book, index: Option<usize>) -> Result<Vec<u8>> {
+@@ -129,105 +90,35 @@ pub fn asset(book: &Book, index: Option<usize>) -> Result<Vec<u8>> {
+     formats::asset(&path, &book.format, index)
+ }
+ 
+-fn save_cache(
+-    desktop: &Desktop,
+-    directory: &Path,
+-    target: &Path,
+-    publication: &Value,
+-    limit: u64,
+-) -> Result<()> {
+-    if limit == 0 {
+-        return Ok(());
+-    }
+-    let data = serde_json::to_vec(publication)?;
+-    if data.len() as u64 > limit {
+-        return Ok(());
+-    }
+-    let _guard = desktop
+-        .cache_lock
+-        .lock()
+-        .map_err(|_| anyhow!("Cache unavailable."))?;
+-    fs::create_dir_all(directory)?;
+-    let mut entries = fs::read_dir(directory)?
+-        .flatten()
+-        .filter_map(|entry| {
+-            let metadata = entry.metadata().ok()?;
+-            (metadata.is_file() && entry.path() != target).then(|| {
+-                (
+-                    metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+-                    metadata.len(),
+-                    entry.path(),
+-                )
+-            })
+-        })
+-        .collect::<Vec<_>>();
+-    entries.sort_by_key(|entry| entry.0);
+-    let mut total = data.len() as u64 + entries.iter().map(|entry| entry.1).sum::<u64>();
+-    for (_, size, path) in entries {
+-        if total <= limit {
+-            break;
+-        }
+-        if fs::remove_file(path).is_ok() {
+-            total = total.saturating_sub(size);
+-        }
+-    }
+-    if total > limit {
+-        return Ok(());
+-    }
+-    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
+-    temporary.write_all(&data)?;
+-    temporary.persist(target)?;
+-    Ok(())
+-}
+-
+-pub fn clear(desktop: &Desktop) -> Result<()> {
+-    let _guard = desktop
+-        .cache_lock
+-        .lock()
+-        .map_err(|_| anyhow!("Cache unavailable."))?;
+-    let directory = desktop.data.join("publications");
+-    if directory.exists() {
+-        fs::remove_dir_all(directory)?;
+-    }
+-    Ok(())
+-}
+-
+ pub fn prewarm(desktop: &Desktop) {
+-    let Ok((books, limit)) = desktop.read(|state| {
+-        let books = if state.settings["prepareInBackground"].as_bool() == Some(true) {
+-            state
+-                .books
+-                .iter()
+-                .filter(|book| {
+-                    !book.missing
+-                        && !book.ignored
+-                        && !book.protected
+-                        && matches!(book.format.as_str(), "txt" | "fb2" | "epub")
+-                })
+-                .map(|book| book.id.clone())
+-                .collect()
+-        } else {
+-            Vec::new()
+-        };
+-        Ok((
+-            books,
+-            state.settings["cacheLimitMb"]
+-                .as_u64()
+-                .unwrap_or(1024)
+-                .min(16_384),
+-        ))
++    let Ok(books) = desktop.read(|state| {
++        if state.settings["prepareInBackground"].as_bool() != Some(true) {
++            return Ok(Vec::new());
++        }
++        let mut recent: Vec<_> = state
++            .books
++            .iter()
++            .filter_map(|book| {
++                let time = book.last_opened_at?;
++                (!book.missing
++                    && !book.ignored
++                    && !book.protected
++                    && matches!(book.format.as_str(), "txt" | "fb2" | "epub"))
++                .then_some((time, book.id.as_str()))
++            })
++            .collect();
++        recent.sort_unstable_by_key(|entry| std::cmp::Reverse(entry.0));
++        Ok(recent
++            .into_iter()
++            .take(8)
++            .map(|(_, id)| id.to_owned())
++            .collect::<Vec<_>>())
+     }) else {
+         return;
+     };
+-    let directory = desktop.data.join("publications");
+     for id in books {
+-        if cache_bytes(&directory) >= limit * 1024 * 1024 {
+-            break;
+-        }
+         if let Ok(book) = desktop.source(&id) {
+-            if cache_file(&directory, &book).is_ok_and(|path| !path.exists()) {
+-                let _ = open(desktop, &book);
+-            }
++            let _ = open(desktop, &book);
+         }
+     }
+ }
+diff --git a/src-tauri/tauri.conf.json b/src-tauri/tauri.conf.json
+index 8381074..78faecd 100644
+--- a/src-tauri/tauri.conf.json
++++ b/src-tauri/tauri.conf.json
+@@ -1,7 +1,7 @@
+ {
+   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+   "productName": "Deft",
+-  "version": "0.1.1",
++  "version": "0.1.2",
+   "identifier": "com.kmab.deft",
+   "build": {
+     "beforeDevCommand": "npm run dev",
+diff --git a/src/App.tsx b/src/App.tsx
+index 6f6d04e..b81480e 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
+ import { listen } from '@tauri-apps/api/event';
+ import { ArrowUpRight, BarChart3, BookOpen, Bookmark, Check, FolderPlus, HardDrive, LibraryBig, RefreshCw, Search, Settings2, Users, X } from 'lucide-react';
+ import { rpc, describeError } from './api';
++import { applyLibraryChanges, type SnapshotReply } from './libraryRefresh';
+ import { Books } from './Books';
+ import { BookDetail, AddCategoryDialog, MatchDialog, StateDialog, gatherMatches, type MatchEntry } from './BookDetail';
+ import { Authors, Categories, Notes } from './CatalogViews';
+@@ -43,11 +44,11 @@ export function App() {
+   const [pendingSettings, setPendingSettings] = useState<{ id: number; patch: Partial<AppSettings> }[]>([]);
+   const settingsWrite = useRef<Promise<void>>(Promise.resolve());
+   const settingsSequence = useRef(0);
+-  const settingsRevision = useRef(0);
+   const toastElement = useRef<HTMLDivElement>(null);
+   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+   const frame = useRef<HTMLElement>(null);
+-  const refreshEpoch = useRef(0);
++  const libraryRevision = useRef<number | undefined>(undefined);
++  const refreshQueue = useRef<Promise<void>>(Promise.resolve());
+   const dataRef = useRef(data);
+   const focusSearch = useRef(false);
+ 
+@@ -56,28 +57,25 @@ export function App() {
+     setToast(message);
+     toastTimer.current = setTimeout(()=>setToast(''),4800);
+   },[]);
+-  const refresh = useCallback(async () => {
+-    const epoch = ++refreshEpoch.current;
+-    const revision = settingsRevision.current;
+-    const snapshot = await rpc<Snapshot>('snapshot');
+-    if (refreshEpoch.current === epoch) {
+-      const next = revision === settingsRevision.current ? snapshot : { ...snapshot, settings: dataRef.current.settings };
++  const refresh = useCallback(() => {
++    const request = refreshQueue.current.then(async () => {
++      const reply = await rpc<SnapshotReply>('snapshot', { since: libraryRevision.current });
++      const next = applyLibraryChanges(dataRef.current, reply);
++      libraryRevision.current = reply.revision;
+       dataRef.current = next;
+       setData(next);
+       setLoaded(true);
+       setFatal('');
+-    }
+-  },[]);
++    });
++    refreshQueue.current = request.catch(() => {});
++    return request;
++  }, []);
+   const saveSettings = useCallback(async (patch: Partial<AppSettings>) => {
+     const id = ++settingsSequence.current;
+     setPendingSettings(previous => [...previous, { id, patch }]);
+     const write = settingsWrite.current.then(async () => {
+-      const saved = await rpc<AppSettings>('settingsPatch', { patch });
+-      settingsRevision.current++;
+-      const next = { ...dataRef.current, settings: saved ?? { ...dataRef.current.settings, ...patch } };
+-      dataRef.current = next;
+-      setData(next);
+-      if (patch.seriesAutoFill === true) await refresh();
++      await rpc('settingsPatch', { patch });
++      await refresh();
+     });
+     settingsWrite.current = write.catch(() => {});
+     try {
+diff --git a/src/Reader.tsx b/src/Reader.tsx
+index 7d884d2..1446d74 100644
+--- a/src/Reader.tsx
++++ b/src/Reader.tsx
+@@ -12,7 +12,7 @@ import { describeError, rpc } from './api';
+ import { openKindle } from './kindle';
+ import { openPages, publicationBytes, type PageSource } from './readerPages';
+ import {
+-  anchorOffset, clamp, clearHighlights, getLocator, locatorAtProgress, NOTE_COLORS,
++  anchorOffset, clamp, clearHighlights, estimatedPage, getLocator, locatorAtProgress, NOTE_COLORS,
+   offsetAtPoint, offsetIn, pageLocator, paintHighlights, prepareChapters, rangeForOffsets,
+   restoreTextLocator, searchChapters, type Publication, type SearchHit, type TextChapter, type TocEntry,
+ } from './readerText';
+@@ -900,6 +900,10 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
+   const where = isFixed ? `page ${cursor.chapter + 1} of ${count}`
+     : `ch. ${cursor.chapter + 1} of ${count}`;
+   const displayProgress = isFixed && count ? (cursor.chapter + 1) / count : cursor.progress;
++  const page = isFixed ? null : estimatedPage(chapters ?? [], cursor);
++  const progressIndicator = currentSettings.readerProgressDisplay === 'page'
++    ? page ? `est. page ${page.current} of ${page.total}` : where
++    : `${percent(displayProgress)}%`;
+   const slider = isFixed ? cursor.progress : displayProgress;
+   const remaining = estimateSeconds && book.progress < 1
+     ? Math.round(estimateSeconds * (1 - cursor.progress) / Math.max(0.01, 1 - book.progress) / 60) : 0;
+@@ -977,9 +981,9 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
+           value={Math.round(slider * 1000)}
+           onChange={event => seek(Number(event.target.value) / 1000)}
+           onPointerUp={() => askIfFinished()} onKeyUp={() => askIfFinished()}
+-          aria-label="book progress" aria-valuetext={`${percent(displayProgress)} percent, ${where}`} />
++          aria-label="book progress" aria-valuetext={progressIndicator === where ? where : `${progressIndicator}, ${where}`} />
+         <datalist id="reader-chapter-ticks">{ticks.map((tick, index) => <option key={index} value={tick} />)}</datalist>
+-        <div><span>{where}</span><span>{percent(displayProgress)}%</span>{remaining > 0 && <span>{timeLeft}</span>}
++        <div>{where !== progressIndicator && <span>{where}</span>}<span>{progressIndicator}</span>{remaining > 0 && <span>{timeLeft}</span>}
+           {currentSettings.trackingIndicator && <span className="reader-tracking">
+             <i data-active={tracking.status.active} /> {Math.floor(tracking.status.seconds / 60)}m {tracking.status.seconds % 60}s
+           </span>}</div>
+@@ -1001,7 +1005,7 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
+       <div className="reader-statusline">
+         {currentSettings.readerStatusLine && <>
+           <span>{statusTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+-          <span>{percent(displayProgress)}%</span>
++          <span>{progressIndicator}</span>
+           {battery !== undefined && <span>{battery}% battery</span>}
+         </>}
+         {currentSettings.trackingIndicator && <span className="reader-tracking">
+diff --git a/src/Settings.tsx b/src/Settings.tsx
+index b2f5a17..44dee23 100644
+--- a/src/Settings.tsx
++++ b/src/Settings.tsx
+@@ -185,6 +185,9 @@ export function ReaderPreferences({ settings, patch, section, compact, bookForma
+     {active === 'page' && <div className="pref-rows">
+       <Choice label="page layout" value={settings.readerLayout ?? 'paged'} options={['paged', 'scroll']} change={change('readerLayout')} />
+       <Choice label="page-turn animation" value={settings.readerAnimation ?? 'none'} options={['none', 'slide']} change={change('readerAnimation')} />
++      <Choice label="progress display" value={settings.readerProgressDisplay ?? 'percentage'}
++        options={[{ value: 'percentage', label: 'percentage' }, { value: 'page', label: 'page number' }]}
++        change={change('readerProgressDisplay')} />
+       <Switch label="status line" value={settings.readerStatusLine === true} change={change('readerStatusLine')} />
+       <Switch label="volume keys turn pages" help={!compact ? 'Applies on keyboards that deliver media keys to the app.' : undefined}
+         value={settings.readerVolumeKeys === true} change={change('readerVolumeKeys')} />
+@@ -378,7 +381,7 @@ export function Settings({ data, refresh, notice, saveSettings, initialSection =
+                 e.target.checked ? [...enabledFormats, format] : enabledFormats.filter(value => value !== format),
+               )} />{format.toUpperCase()}</label>)}</div>
+             <Switch label="auto-fill series from file metadata" value={settings.seriesAutoFill !== false} change={set('seriesAutoFill')} />
+-            <Switch label="prepare books in background" help="Prepares converted books so they open faster." value={settings.prepareInBackground !== false} change={set('prepareInBackground')} />
++            <Switch label="prepare recent books in background" help="Prepares up to eight previously opened books at startup." value={settings.prepareInBackground === true} change={set('prepareInBackground')} />
+           </Panel>
+           <Panel title="ignored books">
+             {ignored.length === 0 ? <p className="muted">No ignored books.</p> : ignored.map(book =>
+@@ -480,9 +483,9 @@ export function Settings({ data, refresh, notice, saveSettings, initialSection =
+           </Panel>
+         </>}
+         {section === 'storage' && <Panel title="conversion cache">
+-          <p className="muted">Converted books are prepared from the originals when needed. Clearing this cache preserves reading positions and history.</p>
++          <p className="muted">Deft keeps up to 64 recently used conversions in compressed form. Clearing this cache preserves reading positions and history.</p>
+           <div className="pref-field"><span>used</span><strong className="mono">{((data.cacheBytes ?? 0) / 1_048_576).toFixed(1)} MB</strong></div>
+-          <Numeric label="maximum cache size" value={settings.cacheLimitMb ?? 1024} change={set('cacheLimitMb')} min={32} max={16_384} unit="MB" />
++          <Numeric label="maximum cache size" value={settings.cacheLimitMb ?? 128} change={set('cacheLimitMb')} min={16} max={16_384} unit="MB" zero="off" />
+           <div className="pref-actions"><button className="button" disabled={Boolean(busy)} onClick={() => void run('cache', () => rpc('cacheClear'), () => notice('Conversion cache cleared.'))}>
+             <Trash2 size={16} aria-hidden /> clear cache</button></div>
+         </Panel>}
+diff --git a/src/catalog-views.css b/src/catalog-views.css
+index 0dd0794..274c7c5 100644
+--- a/src/catalog-views.css
++++ b/src/catalog-views.css
+@@ -81,6 +81,7 @@
+   border-block-start: 1px solid var(--line);
+ }
+ .catalog-member:not(:has(.catalog-handle,.catalog-position)) { grid-template-columns: minmax(0, 1fr) auto auto; }
++.catalog-member > .state-pill { align-self: center; }
+ .catalog-member[data-drag-over="true"] { border-block-start-color: var(--accent); background: var(--surface2); }
+ .catalog-book-link, .catalog-author-row, .catalog-author-book, .catalog-note-source { background: transparent; color: inherit; border: 0; font: inherit; padding: 0; text-align: start; cursor: pointer; }
+ .catalog-book-link { display: flex; align-items: center; gap: 9px; min-width: 0; }
+diff --git a/src/libraryRefresh.test.ts b/src/libraryRefresh.test.ts
+new file mode 100644
+index 0000000..7605e8e
+--- /dev/null
++++ b/src/libraryRefresh.test.ts
+@@ -0,0 +1,35 @@
++import { describe, expect, it } from 'vitest';
++import { applyLibraryChanges } from './libraryRefresh';
++import type { Book, Snapshot } from './types';
++
++const book = (id: string, favorite = false) => ({ id, favorite }) as Book;
++
++const snapshot: Snapshot = {
++  books: [book('a'), book('b'), book('c')], authors: [], categories: [], types: [], annotations: [],
++  readThroughs: [], sessions: [], folders: [], settings: { readerFontSize: 19 }, cacheBytes: 10,
++};
++
++describe('library refresh', () => {
++  it('changes a single book without replacing the unaffected rows', () => {
++    const result = applyLibraryChanges(snapshot, {
++      revision: 5, cacheBytes: 10, changes: [{ rows: { books: { upsert: [book('b', true)], remove: [] } }, fields: {} }],
++    });
++    expect(result.books.map(row => row.id)).toEqual(['a', 'b', 'c']);
++    expect(result.books[1].favorite).toBe(true);
++    expect(result.books[0]).toBe(snapshot.books[0]);
++    expect(result.categories).toBe(snapshot.categories);
++    expect(snapshot.books[1].favorite).toBe(false);
++  });
++
++  it('applies ordered edits and deletions and can carry settings separately', () => {
++    const result = applyLibraryChanges(snapshot, {
++      revision: 7, cacheBytes: 0, changes: [
++        { rows: { books: { upsert: [book('d')], remove: ['b'], order: ['d', 'a', 'c'] } }, fields: {} },
++        { rows: {}, fields: { settings: { readerFontSize: 20 } } },
++      ],
++    });
++    expect(result.books.map(row => row.id)).toEqual(['d', 'a', 'c']);
++    expect(result.settings.readerFontSize).toBe(20);
++    expect(result.cacheBytes).toBe(0);
++  });
++});
+diff --git a/src/libraryRefresh.ts b/src/libraryRefresh.ts
+new file mode 100644
+index 0000000..d01cc11
+--- /dev/null
++++ b/src/libraryRefresh.ts
+@@ -0,0 +1,37 @@
++import type { Snapshot } from './types';
++
++const collections = ['books', 'authors', 'categories', 'types', 'annotations', 'readThroughs', 'sessions', 'folders'] as const;
++type Collection = typeof collections[number];
++type Entity = Snapshot[Collection][number];
++type RowChanges = { upsert: Entity[]; remove: string[]; order?: string[] | null };
++type Delta = {
++  rows: Partial<Record<Collection, RowChanges>>;
++  fields: Pick<Partial<Snapshot>, 'settings' | 'lastScan'>;
++};
++
++export type SnapshotReply =
++  | { revision: number; full: Snapshot }
++  | { revision: number; changes: Delta[]; cacheBytes: number };
++
++export function applyLibraryChanges(previous: Snapshot, reply: SnapshotReply): Snapshot {
++  if ('full' in reply) return reply.full;
++  let next = previous.cacheBytes === reply.cacheBytes ? previous : { ...previous, cacheBytes: reply.cacheBytes };
++  for (const change of reply.changes) {
++    next = { ...next, ...change.fields };
++    for (const collection of collections) {
++      const patch = change.rows[collection];
++      if (patch) Object.assign(next, { [collection]: updateRows(next[collection], patch) });
++    }
++  }
++  return next;
++}
++
++function updateRows(current: Entity[], patch: RowChanges): Entity[] {
++  const rows = new Map(current.map(row => [row.id, row]));
++  for (const id of patch.remove) rows.delete(id);
++  for (const row of patch.upsert) rows.set(row.id, row);
++  return patch.order ? patch.order.flatMap(id => {
++    const row = rows.get(id);
++    return row ? [row] : [];
++  }) : [...rows.values()];
++}
+diff --git a/src/readerText.test.ts b/src/readerText.test.ts
+index 53951c4..0b812ce 100644
+--- a/src/readerText.test.ts
++++ b/src/readerText.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from 'vitest';
+-import { getLocator, locatorAtProgress, pageLocator, restoreTextLocator, searchChapters, type TextChapter } from './readerText';
++import { estimatedPage, getLocator, locatorAtProgress, pageLocator, restoreTextLocator, searchChapters, type TextChapter } from './readerText';
+ 
+ const chapters: TextChapter[] = [
+   { title: 'one', href: 'one.xhtml', html: '', text: 'Lorem ipsum? A [dot.] belongs here.', length: 35, start: 0 },
+@@ -22,6 +22,12 @@ describe('reader locators', () => {
+     expect(restoreTextLocator(chapters, { ...point, href: 'former.xhtml' })).toEqual(locatorAtProgress(chapters, point.progress));
+   });
+ 
++  it('keeps estimated reflowable page numbers inside the total at the end', () => {
++    expect(estimatedPage(chapters, getLocator(chapters, 1, 1092))).toEqual({ current: 2, total: 3 });
++    const exact = [{ ...chapters[0], length: 1024 }];
++    expect(estimatedPage(exact, getLocator(exact, 0, 1024))).toEqual({ current: 1, total: 1 });
++  });
++
+   it('keeps page numbers zero-based and counts a one-page document as complete', () => {
+     expect(pageLocator(9, 4)).toEqual({ page: 3, chapter: 3, offset: 0, progress: 1, position: 3 });
+     expect(pageLocator(0, 1).progress).toBe(1);
+diff --git a/src/readerText.ts b/src/readerText.ts
+index 102630c..77279ff 100644
+--- a/src/readerText.ts
++++ b/src/readerText.ts
+@@ -30,6 +30,8 @@ export interface TextChapter extends Chapter {
+ export const clamp = (value: number, min: number, max: number) =>
+   Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
+ 
++const POSITION_LENGTH = 1024;
++
+ const LOCAL_LINK = /^(?:#[^\s]*|deft-chapter:\d+(?:#[^\s]*)?)$/i;
+ const SAFE_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp|avif|bmp);base64,[a-z0-9+/=\s]+$/i;
+ const TEXT_TAGS = [
+@@ -89,11 +91,18 @@ export function getLocator(chapters: TextChapter[], chapter: number, offset: num
+     chapter: index,
+     offset: safeOffset,
+     progress: absolute / Math.max(1, (last?.start ?? 0) + (last?.length ?? 0)),
+-    position: Math.floor(absolute / 1024),
++    position: Math.floor(absolute / POSITION_LENGTH),
+     href: current?.href,
+   };
+ }
+ 
++/** Positions are stable across font and window changes in reflowable books. */
++export function estimatedPage(chapters: TextChapter[], locator: Locator) {
++  const last = chapters.at(-1);
++  const total = Math.max(1, Math.ceil(((last?.start ?? 0) + (last?.length ?? 0)) / POSITION_LENGTH));
++  return { current: clamp(locator.position + 1, 1, total), total };
++}
++
+ export function locatorAtProgress(chapters: TextChapter[], progress: number): Locator {
+   const last = chapters.at(-1);
+   const absolute = Math.floor(clamp(progress, 0, 1) * ((last?.start ?? 0) + (last?.length ?? 0)));
+-- 
+2.52.0
+

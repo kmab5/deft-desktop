@@ -185,6 +185,9 @@ export function ReaderPreferences({ settings, patch, section, compact, bookForma
     {active === 'page' && <div className="pref-rows">
       <Choice label="page layout" value={settings.readerLayout ?? 'paged'} options={['paged', 'scroll']} change={change('readerLayout')} />
       <Choice label="page-turn animation" value={settings.readerAnimation ?? 'none'} options={['none', 'slide']} change={change('readerAnimation')} />
+      <Choice label="progress display" value={settings.readerProgressDisplay ?? 'percentage'}
+        options={[{ value: 'percentage', label: 'percentage' }, { value: 'page', label: 'page number' }]}
+        change={change('readerProgressDisplay')} />
       <Switch label="status line" value={settings.readerStatusLine === true} change={change('readerStatusLine')} />
       <Switch label="volume keys turn pages" help={!compact ? 'Applies on keyboards that deliver media keys to the app.' : undefined}
         value={settings.readerVolumeKeys === true} change={change('readerVolumeKeys')} />
@@ -378,7 +381,7 @@ export function Settings({ data, refresh, notice, saveSettings, initialSection =
                 e.target.checked ? [...enabledFormats, format] : enabledFormats.filter(value => value !== format),
               )} />{format.toUpperCase()}</label>)}</div>
             <Switch label="auto-fill series from file metadata" value={settings.seriesAutoFill !== false} change={set('seriesAutoFill')} />
-            <Switch label="prepare books in background" help="Prepares converted books so they open faster." value={settings.prepareInBackground !== false} change={set('prepareInBackground')} />
+            <Switch label="prepare recent books in background" help="Prepares up to eight previously opened books at startup." value={settings.prepareInBackground === true} change={set('prepareInBackground')} />
           </Panel>
           <Panel title="ignored books">
             {ignored.length === 0 ? <p className="muted">No ignored books.</p> : ignored.map(book =>
@@ -480,9 +483,9 @@ export function Settings({ data, refresh, notice, saveSettings, initialSection =
           </Panel>
         </>}
         {section === 'storage' && <Panel title="conversion cache">
-          <p className="muted">Converted books are prepared from the originals when needed. Clearing this cache preserves reading positions and history.</p>
+          <p className="muted">Deft keeps up to 64 recently used conversions in compressed form. Clearing this cache preserves reading positions and history.</p>
           <div className="pref-field"><span>used</span><strong className="mono">{((data.cacheBytes ?? 0) / 1_048_576).toFixed(1)} MB</strong></div>
-          <Numeric label="maximum cache size" value={settings.cacheLimitMb ?? 1024} change={set('cacheLimitMb')} min={32} max={16_384} unit="MB" />
+          <Numeric label="maximum cache size" value={settings.cacheLimitMb ?? 128} change={set('cacheLimitMb')} min={16} max={16_384} unit="MB" zero="off" />
           <div className="pref-actions"><button className="button" disabled={Boolean(busy)} onClick={() => void run('cache', () => rpc('cacheClear'), () => notice('Conversion cache cleared.'))}>
             <Trash2 size={16} aria-hidden /> clear cache</button></div>
         </Panel>}

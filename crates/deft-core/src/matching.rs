@@ -660,6 +660,7 @@ pub fn cover(url: &str) -> Result<String> {
             "The provider did not return a supported image"
         );
         return crate::formats::cover_image(&bytes)
+            .map(|cover| cover.to_string())
             .context("Could not decode the provider's cover image");
     }
     bail!("Too many cover redirects")

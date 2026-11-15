@@ -124,9 +124,9 @@ fn run() -> Result<()> {
                 if let Ok(report) = desktop.scan(false) {
                     if !report.skipped {
                         let _ = worker.emit("deft:scan", &report);
-                        publication::prewarm(&desktop);
                     }
                 }
+                publication::prewarm(&desktop);
                 loop {
                     if let Err(error) = desktop.weekly_backup() {
                         let _ = worker.emit(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getLocator, locatorAtProgress, pageLocator, restoreTextLocator, searchChapters, type TextChapter } from './readerText';
+import { estimatedPage, getLocator, locatorAtProgress, pageLocator, restoreTextLocator, searchChapters, type TextChapter } from './readerText';
 
 const chapters: TextChapter[] = [
   { title: 'one', href: 'one.xhtml', html: '', text: 'Lorem ipsum? A [dot.] belongs here.', length: 35, start: 0 },
@@ -20,6 +20,12 @@ describe('reader locators', () => {
     const point = getLocator(chapters, 1, 100);
     expect(restoreTextLocator(chapters, { ...point, chapter: 0 })).toEqual(point);
     expect(restoreTextLocator(chapters, { ...point, href: 'former.xhtml' })).toEqual(locatorAtProgress(chapters, point.progress));
+  });
+
+  it('keeps estimated reflowable page numbers inside the total at the end', () => {
+    expect(estimatedPage(chapters, getLocator(chapters, 1, 1092))).toEqual({ current: 2, total: 3 });
+    const exact = [{ ...chapters[0], length: 1024 }];
+    expect(estimatedPage(exact, getLocator(exact, 0, 1024))).toEqual({ current: 1, total: 1 });
   });
 
   it('keeps page numbers zero-based and counts a one-page document as complete', () => {

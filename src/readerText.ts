@@ -30,6 +30,8 @@ export interface TextChapter extends Chapter {
 export const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
 
+const POSITION_LENGTH = 1024;
+
 const LOCAL_LINK = /^(?:#[^\s]*|deft-chapter:\d+(?:#[^\s]*)?)$/i;
 const SAFE_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp|avif|bmp);base64,[a-z0-9+/=\s]+$/i;
 const TEXT_TAGS = [
@@ -89,9 +91,16 @@ export function getLocator(chapters: TextChapter[], chapter: number, offset: num
     chapter: index,
     offset: safeOffset,
     progress: absolute / Math.max(1, (last?.start ?? 0) + (last?.length ?? 0)),
-    position: Math.floor(absolute / 1024),
+    position: Math.floor(absolute / POSITION_LENGTH),
     href: current?.href,
   };
+}
+
+/** Positions are stable across font and window changes in reflowable books. */
+export function estimatedPage(chapters: TextChapter[], locator: Locator) {
+  const last = chapters.at(-1);
+  const total = Math.max(1, Math.ceil(((last?.start ?? 0) + (last?.length ?? 0)) / POSITION_LENGTH));
+  return { current: clamp(locator.position + 1, 1, total), total };
 }
 
 export function locatorAtProgress(chapters: TextChapter[], progress: number): Locator {

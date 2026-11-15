@@ -836,15 +836,15 @@ mod tests {
                     "outcome": "abandoned", "endedAt": 1704326400000_i64}
             ],
             "annotations": [
-                {"bookId": "one", "kind": "highlight", "text": "Passage", "note": "Private note",
+                {"id":"sample-highlight", "bookId": "one", "kind": "highlight", "text": "Passage", "note": "Private note",
                     "locator": {"chapter": 1}, "createdAt": 1704067200000_i64, "updatedAt": 1704067200000_i64}
             ],
             "sessions": [
-                {"bookId": "one", "activeSeconds": 120, "startLocator":{"position":4}, "endLocator":{"position":8}},
-                {"bookId": "one", "activeSeconds": 960, "browsing": true},
-                {"bookId": "hidden", "activeSeconds": 480}
+                {"id":"reading-session", "bookId": "one", "activeSeconds": 120, "startLocator":{"position":4}, "endLocator":{"position":8}},
+                {"id":"browsing-session", "bookId": "one", "activeSeconds": 960, "browsing": true},
+                {"id":"hidden-session", "bookId": "hidden", "activeSeconds": 480}
             ],
-            "folders":[{"path":"C:/private"}],
+            "folders":[{"id":"private-folder","path":"C:/private"}],
             "settings":{"hardcoverToken":"my-secret"},
         })
     }

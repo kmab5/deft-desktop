@@ -12,7 +12,7 @@ import { describeError, rpc } from './api';
 import { openKindle } from './kindle';
 import { openPages, publicationBytes, type PageSource } from './readerPages';
 import {
-  anchorOffset, clamp, clearHighlights, getLocator, locatorAtProgress, NOTE_COLORS,
+  anchorOffset, clamp, clearHighlights, estimatedPage, getLocator, locatorAtProgress, NOTE_COLORS,
   offsetAtPoint, offsetIn, pageLocator, paintHighlights, prepareChapters, rangeForOffsets,
   restoreTextLocator, searchChapters, type Publication, type SearchHit, type TextChapter, type TocEntry,
 } from './readerText';
@@ -900,6 +900,10 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
   const where = isFixed ? `page ${cursor.chapter + 1} of ${count}`
     : `ch. ${cursor.chapter + 1} of ${count}`;
   const displayProgress = isFixed && count ? (cursor.chapter + 1) / count : cursor.progress;
+  const page = isFixed ? null : estimatedPage(chapters ?? [], cursor);
+  const progressIndicator = currentSettings.readerProgressDisplay === 'page'
+    ? page ? `est. page ${page.current} of ${page.total}` : where
+    : `${percent(displayProgress)}%`;
   const slider = isFixed ? cursor.progress : displayProgress;
   const remaining = estimateSeconds && book.progress < 1
     ? Math.round(estimateSeconds * (1 - cursor.progress) / Math.max(0.01, 1 - book.progress) / 60) : 0;
@@ -977,9 +981,9 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
           value={Math.round(slider * 1000)}
           onChange={event => seek(Number(event.target.value) / 1000)}
           onPointerUp={() => askIfFinished()} onKeyUp={() => askIfFinished()}
-          aria-label="book progress" aria-valuetext={`${percent(displayProgress)} percent, ${where}`} />
+          aria-label="book progress" aria-valuetext={progressIndicator === where ? where : `${progressIndicator}, ${where}`} />
         <datalist id="reader-chapter-ticks">{ticks.map((tick, index) => <option key={index} value={tick} />)}</datalist>
-        <div><span>{where}</span><span>{percent(displayProgress)}%</span>{remaining > 0 && <span>{timeLeft}</span>}
+        <div>{where !== progressIndicator && <span>{where}</span>}<span>{progressIndicator}</span>{remaining > 0 && <span>{timeLeft}</span>}
           {currentSettings.trackingIndicator && <span className="reader-tracking">
             <i data-active={tracking.status.active} /> {Math.floor(tracking.status.seconds / 60)}m {tracking.status.seconds % 60}s
           </span>}</div>
@@ -1001,7 +1005,7 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
       <div className="reader-statusline">
         {currentSettings.readerStatusLine && <>
           <span>{statusTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-          <span>{percent(displayProgress)}%</span>
+          <span>{progressIndicator}</span>
           {battery !== undefined && <span>{battery}% battery</span>}
         </>}
         {currentSettings.trackingIndicator && <span className="reader-tracking">

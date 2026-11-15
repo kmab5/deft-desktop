@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::{
-    desktop::{cache_bytes, keep_awake, Desktop},
+    desktop::{keep_awake, Desktop},
     publication,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
@@ -54,11 +54,7 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
     let app = window.app_handle();
     let desktop = app.state::<Desktop>();
     match op {
-        "snapshot" => {
-            let mut snapshot = desktop.read(|state| result(state))?;
-            snapshot["cacheBytes"] = cache_bytes(&desktop.data.join("publications")).into();
-            Ok(snapshot)
-        }
+        "snapshot" => desktop.snapshot(args["since"].as_u64()),
         "scan" => scan(window, &desktop, args["force"].as_bool().unwrap_or(true)),
         "folderAdd" => {
             let Some(path) = selected(
@@ -139,7 +135,7 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
             scan(window, &desktop, true)
         }
         "cacheClear" => {
-            publication::clear(&desktop)?;
+            desktop.cache.clear()?;
             Ok(Value::Null)
         }
         "settingsPatch" => {
@@ -401,10 +397,10 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
             desktop.change(|state| {
                 if op == "bookCover" {
                     let book = catalog::book_mut(state, text(&args, "bookId")?)?;
-                    book.overrides.cover = Some(cover);
+                    book.overrides.cover = Some(cover.into());
                     book.apply_metadata();
                 } else {
-                    catalog::category_mut(state, text(&args, "id")?)?.cover = Some(cover);
+                    catalog::category_mut(state, text(&args, "id")?)?.cover = Some(cover.into());
                 }
                 Ok(Value::Null)
             })
@@ -593,7 +589,7 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
                         == Some(url.as_str()),
                     "The matched edition changed before the cover finished downloading."
                 );
-                book.overrides.cover = Some(cover);
+                book.overrides.cover = Some(cover.into());
                 book.apply_metadata();
                 Ok(Value::Null)
             })
@@ -640,12 +636,8 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
 
 fn scan(window: &WebviewWindow, desktop: &Desktop, force: bool) -> Result<Value> {
     let report = desktop.scan(force)?;
-    let handle = window.app_handle().clone();
     if !report.skipped {
         let _ = window.emit("deft:scan", &report);
-        tauri::async_runtime::spawn_blocking(move || {
-            publication::prewarm(&handle.state::<Desktop>())
-        });
     }
     result(report)
 }

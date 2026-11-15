@@ -17,6 +17,7 @@ use std::{
     fs::File,
     io::{Cursor, Read},
     path::Path,
+    sync::Arc,
 };
 use zip::{result::ZipError, ZipArchive};
 
@@ -28,7 +29,7 @@ const BINARY_LIMIT: u64 = 512 * 1024 * 1024;
 const XML_LIMIT: u64 = 4 * 1024 * 1024;
 const PROTECTED: &str = "This file is DRM-protected. Deft can't open it.";
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Metadata {
     pub title: String,
@@ -42,7 +43,7 @@ pub struct Metadata {
     pub isbn10: Option<String>,
     pub isbn13: Option<String>,
     pub page_count: Option<usize>,
-    pub cover: Option<String>,
+    pub cover: Option<Arc<str>>,
     pub protected: bool,
 }
 
@@ -520,7 +521,7 @@ fn data_image(bytes: &[u8]) -> Option<String> {
     image_mime(bytes).map(|mime| format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
 }
 
-pub(crate) fn cover_image(bytes: &[u8]) -> Option<String> {
+pub(crate) fn cover_image(bytes: &[u8]) -> Option<Arc<str>> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .ok()?;
@@ -529,12 +530,12 @@ pub(crate) fn cover_image(bytes: &[u8]) -> Option<String> {
     limits.max_image_height = Some(12_000);
     limits.max_alloc = Some(96 * 1024 * 1024);
     reader.limits(limits);
-    let thumbnail = reader.decode().ok()?.thumbnail(400, 400).into_rgb8();
+    let thumbnail = reader.decode().ok()?.thumbnail(320, 400).into_rgb8();
     let mut encoded = Vec::new();
-    JpegEncoder::new_with_quality(&mut encoded, 84)
+    JpegEncoder::new_with_quality(&mut encoded, 78)
         .encode_image(&thumbnail)
         .ok()?;
-    data_image(&encoded)
+    data_image(&encoded).map(Arc::from)
 }
 
 fn chapter_href(index: usize, fragment: Option<&str>) -> String {

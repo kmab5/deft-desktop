@@ -11,7 +11,7 @@ The original design and roadmap are preserved under [plans](../plans). This docu
 | M5 · annotations | Highlights, notes and bookmarks, in-book search, global and per-book filters, fixed page notes, location jumps and Markdown export. |
 | M6 · statistics | Date ranges, charts, heatmaps, timezone-aware sessions, streaks, goals, author/category/book summaries and year in review. |
 | M7 · fixed layout | Local PDF.js worker, DjVu WASM worker and CBZ image source. Fit modes, scroll/paged view, zoom, inversion, page notes, PDF passwords, PDF/DjVu outlines and CBZ RTL. |
-| M8 · conversion | TXT decoding, FB2/FB2 ZIP and Kindle MOBI/KF8 processing, using the same text reader. The cache is versioned by content hash with size and LRU limits. |
+| M8 · conversion | TXT decoding, FB2/FB2 ZIP and Kindle MOBI/KF8 processing, using the same text reader. The compressed cache is keyed by content hash and evicts the least recently used book. It keeps up to 64 conversions and defaults to 128 MB. |
 | M9 · exchange | Explicit matching and cover download, Goodreads CSV, Deft Reading Profile schema/sample, SQLite backup/restore and configurable weekly rotation. |
 | M10 · packaging | Windows x64 NSIS, MSI and portable ZIP workflow, optional certificate signing, tag-based releases, GitHub Pages product site, keyboard navigation, reduced-motion support and first-run guidance. |
 
@@ -21,7 +21,7 @@ The original design and roadmap are preserved under [plans](../plans). This docu
 | --- | --- |
 | Tauri 2, Rust and React | Keep file access, network and durable data in Rust. Support desktop controls on the platform WebView. |
 | Keep `com.kmab.deft` | Preserve the product identity from the approved design. |
-| SQLite records by collection | Save related state in one transaction and keep backups consistent. The schema version is checked during restore. |
+| SQLite records per library item | Save related state in one transaction, update only changed rows, and keep backups consistent. Restore checks and migrates the schema. |
 | Native local directories and file dialogs | Replace Android's Storage Access Framework and share sheet. On a different Windows computer or drive letter, add the new folders and rescan after restore. |
 | PDF.js and DjVu-rs | Bundle offline decoders and PDF password support with the same viewer controls. |
 | Normalized local reflow | Render structurally sanitized content and keep reading controls shared across EPUB, FB2, TXT and Kindle. Store an offset and normalized book progression so reopening survives layout changes. |
