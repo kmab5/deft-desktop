@@ -2,7 +2,7 @@
 
 ## Windows release
 
-The Windows workflow runs the TypeScript checks, frontend tests, Rust format check and core tests on branch pushes and pull requests. It builds the production frontend and links the desktop executable with x64 MSVC. Version tags run the same checks and package a release build.
+The Windows workflow runs the TypeScript checks, frontend tests, Rust format check and core tests on branch pushes and pull requests. It builds the production frontend and links the desktop executable with x64 MSVC. Version tags run the same checks and package a release build. Actions labels branch runs **Windows CI** and tag runs **Windows release**. The release run summary links to the published packages.
 
 Use tags `vA.B.C` or `vA.B.C-D`, with `D` between 1 and 99. Before tagging a changed app version, commit matching versions in `package.json`, `package-lock.json`, `Cargo.toml`, `Cargo.lock` and `src-tauri/tauri.conf.json`. A packaging-only revision can use a new `D` without changing the app version. The MSI uses its third numerical version field to encode both the patch version and the packaging revision, so a packaging-only release can upgrade an earlier MSI. These tags must fit the Windows Installer version bounds.
 
@@ -22,7 +22,7 @@ After the checks and build pass, the workflow publishes these files to [GitHub R
 | `deft-vA.B.C[-D]-windows-x64-portable.zip` | Extract and run on a computer with WebView2 installed |
 | `SHA256SUMS.txt` | SHA-256 hashes for the three downloadable packages |
 
-Releases with major version zero are marked as prereleases. The workflow verifies the checksums and publishes the draft after the assets upload. A rerun preserves an already-published release that has all four assets.
+Releases with major version zero are marked as prereleases. Browse the full Releases list to find them. The product page links to the newest release that contains all three Windows packages and the checksum file. The workflow verifies the checksums and publishes the draft after the assets upload. A rerun preserves an already-published release that has all four assets.
 
 Configure `DEFT_SIGNING_PFX` (base64 PFX) and `DEFT_SIGNING_PASSWORD` as repository Actions secrets to sign Windows binaries. When configured, the packaging step checks the Authenticode signatures before uploading. Without the secrets, the artifacts are unsigned. Use the [native Windows checklist](windows-acceptance.md) to test installation and first launch.
 

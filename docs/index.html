@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Deft · Read like you mean it</title>
   <meta name="description" content="Deft is a free, offline ebook reader and reading tracker for Windows. Read from your own folders, mark passages and keep a record of your reading.">
-  <meta name="theme-color" content="#f4f1ea">
+  <meta name="theme-color" content="#101014">
   <meta property="og:title" content="Deft · Read like you mean it">
   <meta property="og:description" content="Your books, notes and reading history in one offline Windows app.">
   <meta property="og:type" content="website">
@@ -13,6 +13,7 @@
   <link rel="canonical" href="https://kmab5.github.io/deft-desktop/">
   <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/site.css">
+  <script type="module" src="assets/site.js"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -21,7 +22,8 @@
     <nav aria-label="Main navigation">
       <a href="#features">Features</a>
       <a href="#download">Download</a>
-      <a class="source-link" href="https://github.com/kmab5/deft-desktop">GitHub <span aria-hidden="true">↗&#65038;</span></a>
+      <a class="source-link" href="https://github.com/kmab5/deft-desktop" aria-label="GitHub repository"><span class="source-text">GitHub</span><span aria-hidden="true">↗&#65038;</span></a>
+      <button class="theme-switch" type="button" id="theme-switch" aria-label="Light theme" aria-pressed="false" title="Toggle light theme" hidden><span aria-hidden="true">☼</span></button>
     </nav>
   </header>
   <main id="main">
@@ -36,10 +38,25 @@
         </div>
         <p class="hero-meta">Windows 10 / 11 · x64 · free and open source</p>
       </div>
-      <figure class="hero-visual">
-        <span class="visual-caption">deft / library</span>
-        <img class="hero-screen" src="screenshots/library.png" alt="Deft's dark library view, showing ebook covers, a continue-reading card, search and filters" width="1440" height="920" fetchpriority="high">
-      </figure>
+      <section class="hero-visual" aria-label="Deft screenshots">
+        <div class="preview-toolbar">
+          <span class="visual-caption">deft / preview</span>
+          <div class="preview-tabs" role="tablist" aria-label="App screens" hidden>
+            <button type="button" role="tab" id="library-tab" aria-controls="library-preview" aria-selected="true">Library</button>
+            <button type="button" role="tab" id="reader-tab" aria-controls="reader-preview" aria-selected="false" tabindex="-1">Reader</button>
+            <button type="button" role="tab" id="stats-tab" aria-controls="stats-preview" aria-selected="false" tabindex="-1">Stats</button>
+          </div>
+        </div>
+        <div class="preview-pane" id="library-preview" role="tabpanel" aria-labelledby="library-tab">
+          <img class="hero-screen" src="screenshots/library.png" alt="Deft's dark library view with ebook covers, a continue-reading card, search and filters" width="1440" height="920" fetchpriority="high">
+        </div>
+        <div class="preview-pane" id="reader-preview" role="tabpanel" aria-labelledby="reader-tab" hidden>
+          <img class="hero-screen" src="screenshots/reader.png" alt="The Deft reader with a sepia theme and page navigation" width="1120" height="720" loading="lazy">
+        </div>
+        <div class="preview-pane" id="stats-preview" role="tabpanel" aria-labelledby="stats-tab" hidden>
+          <img class="hero-screen" src="screenshots/stats.png" alt="The Deft reading history dashboard with streaks, goals, and a calendar heatmap" width="1320" height="910" loading="lazy">
+        </div>
+      </section>
     </section>
 
     <section class="format-band" aria-label="Supported ebook formats">
@@ -90,14 +107,21 @@
         <div>
           <p class="eyebrow"><span class="status-dot"></span> Windows 10 / 11 · x64</p>
           <h2 id="download-title">Open a book.</h2>
-          <p>Choose a Windows package from GitHub Releases. Setup and MSI include the offline WebView2 installer. The portable ZIP uses a WebView2 runtime already on the device.</p>
-          <a class="button primary" href="https://github.com/kmab5/deft-desktop/releases">View Windows releases <span aria-hidden="true">↗&#65038;</span></a>
+          <p>Setup and MSI include the offline WebView2 installer. The portable ZIP uses the WebView2 runtime already on your computer.</p>
+          <a class="inline-link release-index" href="https://github.com/kmab5/deft-desktop/releases">All releases on GitHub <span aria-hidden="true">↗&#65038;</span></a>
         </div>
-        <dl class="packages">
-          <div><dt><code>.exe</code> Setup</dt><dd>NSIS installer for everyday use</dd></div>
-          <div><dt><code>.msi</code> Windows Installer</dt><dd>MSI package for managed installs</dd></div>
-          <div><dt><code>.zip</code> Portable</dt><dd>Extract and run with data kept beside Deft</dd></div>
-        </dl>
+        <div class="download-panel">
+          <div class="download-meta">
+            <p id="release-status" role="status">Windows downloads</p>
+            <a id="release-notes" class="inline-link" hidden>Release notes <span aria-hidden="true">↗&#65038;</span></a>
+          </div>
+          <ul class="packages" aria-label="Windows packages">
+            <li><a data-package="setup" href="https://github.com/kmab5/deft-desktop/releases"><span class="package-ext">.exe</span><span><strong>Windows setup</strong><small>NSIS installer for everyday use</small></span><span class="package-arrow" aria-hidden="true">↗&#65038;</span></a></li>
+            <li><a data-package="msi" href="https://github.com/kmab5/deft-desktop/releases"><span class="package-ext">.msi</span><span><strong>Windows Installer</strong><small>MSI package for managed installs</small></span><span class="package-arrow" aria-hidden="true">↗&#65038;</span></a></li>
+            <li><a data-package="portable" href="https://github.com/kmab5/deft-desktop/releases"><span class="package-ext">.zip</span><span><strong>Portable</strong><small>Extract and run with data kept beside Deft</small></span><span class="package-arrow" aria-hidden="true">↗&#65038;</span></a></li>
+          </ul>
+          <a id="release-checksums" class="inline-link checksums" hidden>SHA-256 checksums <span aria-hidden="true">↓</span></a>
+        </div>
       </div>
     </section>
   </main>

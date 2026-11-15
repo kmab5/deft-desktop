@@ -1,4 +1,5 @@
 name: Windows CI and releases
+run-name: ${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && format('Windows release · {0}', github.ref_name) || format('Windows CI · {0}', github.ref_name) }}
 
 on:
   push:
@@ -12,6 +13,7 @@ permissions:
 
 jobs:
   windows:
+    name: ${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && 'Test and package x64' || 'Test and compile x64' }}
     runs-on: windows-2022
     timeout-minutes: 50
     steps:
@@ -36,12 +38,19 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo test --locked -p deft-core
       - name: Compile desktop app against the packaged frontend
-        if: github.ref_type != 'tag'
+        if: github.ref_type != 'tag' || !startsWith(github.ref_name, 'v')
         shell: pwsh
         run: |
           npm run build
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo build --locked --target x86_64-pc-windows-msvc -p deft-desktop --features tauri/custom-protocol
+      - name: Explain CI result
+        if: github.ref_type != 'tag' || !startsWith(github.ref_name, 'v')
+        shell: pwsh
+        run: |
+          '### Windows CI passed' >> $env:GITHUB_STEP_SUMMARY
+          'Tests passed and the x64 desktop app compiled. Windows packages are published by version-tag runs.' >> $env:GITHUB_STEP_SUMMARY
+          "[Browse Windows releases]($env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases)" >> $env:GITHUB_STEP_SUMMARY
       - name: Build and package Windows release
         if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
         shell: pwsh
@@ -59,6 +68,7 @@ jobs:
           compression-level: 0
 
   release:
+    name: Publish to GitHub Releases
     if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: windows
     runs-on: ubuntu-latest
@@ -85,11 +95,21 @@ jobs:
           cd release
           sha256sum --check SHA256SUMS.txt
           for asset in "${assets[@]}"; do test -s "$asset"; done
+          summarize_release() {
+            root="$GITHUB_SERVER_URL/$GH_REPO/releases"
+            {
+              printf '### Windows release [%s](%s/tag/%s)\n\n' "$DEFT_TAG" "$root" "$DEFT_TAG"
+              for asset in "${assets[@]}"; do
+                printf -- '- [%s](%s/download/%s/%s)\n' "$asset" "$root" "$DEFT_TAG" "$asset"
+              done
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
           if state=$(gh release view "$DEFT_TAG" --json isDraft,assets); then
             if [[ "$(jq -r .isDraft <<< "$state")" == false ]]; then
               for asset in "${assets[@]}"; do
                 jq -e --arg name "$asset" 'any(.assets[]; .name == $name)' <<< "$state" > /dev/null
               done
+              summarize_release
               exit 0
             fi
             gh release upload "$DEFT_TAG" "${assets[@]}" --clobber
@@ -99,3 +119,4 @@ jobs:
             gh release create "$DEFT_TAG" "${flags[@]}" "${assets[@]}"
           fi
           gh release edit "$DEFT_TAG" --draft=false
+          summarize_release
