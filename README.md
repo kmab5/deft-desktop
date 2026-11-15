@@ -2,6 +2,8 @@
 
 Deft is an offline ebook reader and reading tracker for Windows. Point it at a folder, open a book, and read. It remembers your place, records foreground reading time, and keeps your history when the original file moves or goes missing.
 
+[Product site](https://kmab5.github.io/deft-desktop/) · [Windows downloads](https://github.com/kmab5/deft-desktop/releases)
+
 ## Run on Windows
 
 Use Windows 10 or 11 with Microsoft Edge WebView2, Microsoft C++ Build Tools with **Desktop development with C++**, Rust **1.88+** with the MSVC toolchain, and Node.js **22.12+**.
@@ -13,13 +15,13 @@ npm run tauri dev
 
 In Deft, choose **add a folder** and select a directory containing ebooks. Subfolders are scanned recursively. Settings → library manages subfolder exclusions, file types, ignored books, and rescans.
 
-To build a Windows x64 NSIS installer with the offline WebView2 installer included:
+To build both Windows x64 installers locally with the offline WebView2 installer included:
 
 ```powershell
-npm run tauri build -- --bundles nsis --ci -- --locked
+npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis,msi --ci -- --locked
 ```
 
-The installer is written to `target/release/bundle/nsis/`. The same command runs in GitHub Actions. For signed tagged builds, configure `DEFT_SIGNING_PFX` (base64 PFX) and `DEFT_SIGNING_PASSWORD`; builds without signing secrets are unsigned. Tags such as `v0.1.0-1` publish a prerelease.
+The installers are written under `target/x86_64-pc-windows-msvc/release/bundle/`. For the tagged workflow, signing, portable ZIP, and Pages setup, see [Publishing](docs/publishing.md).
 
 The Tauri source also supports building on Linux and macOS for development. Install the applicable Tauri system prerequisites. Windows is the release target and the installed-dictionary and display-awake integrations are Windows-specific. [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 

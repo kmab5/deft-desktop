@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deft · Read like you mean it</title>
+  <meta name="description" content="Deft is a free, offline ebook reader and reading tracker for Windows. Read from your own folders, mark passages and keep a record of your reading.">
+  <meta name="theme-color" content="#f4f1ea">
+  <meta property="og:title" content="Deft · Read like you mean it">
+  <meta property="og:description" content="Your books, notes and reading history in one offline Windows app.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://kmab5.github.io/deft-desktop/screenshots/library.png">
+  <link rel="canonical" href="https://kmab5.github.io/deft-desktop/">
+  <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-header frame">
+    <a class="brand" href="./" aria-label="Deft home"><img src="assets/mark.svg" alt="" width="37" height="37"><span>deft</span></a>
+    <nav aria-label="Main navigation">
+      <a href="#features">Features</a>
+      <a href="#download">Download</a>
+      <a class="source-link" href="https://github.com/kmab5/deft-desktop">GitHub <span aria-hidden="true">↗&#65038;</span></a>
+    </nav>
+  </header>
+  <main id="main">
+    <section class="hero frame" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="status-dot"></span> Ebook reader for Windows</p>
+        <h1 id="hero-title">Read like you<br class="wide-break"> <em>mean it.</em></h1>
+        <p class="hero-description">Read the books you already have. Deft keeps your place, saves your notes, and tracks your reading time. It all lives on your computer.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#download">Download for Windows <span aria-hidden="true">↓</span></a>
+          <a class="inline-link" href="#features">See how it works <span aria-hidden="true">↘&#65038;</span></a>
+        </div>
+        <p class="hero-meta">Windows 10 / 11 · x64 · free and open source</p>
+      </div>
+      <figure class="hero-visual">
+        <span class="visual-caption">deft / library</span>
+        <img class="hero-screen" src="screenshots/library.png" alt="Deft's dark library view, showing ebook covers, a continue-reading card, search and filters" width="1440" height="920" fetchpriority="high">
+      </figure>
+    </section>
+
+    <section class="format-band" aria-label="Supported ebook formats">
+      <div class="frame format-inner"><span>Open the books you already own</span>
+        <ul><li>EPUB</li><li>PDF</li><li>MOBI</li><li>AZW</li><li>AZW3</li><li>FB2</li><li>TXT</li><li>DjVu</li><li>CBZ</li></ul>
+      </div>
+    </section>
+
+    <section id="features" class="features frame" aria-labelledby="features-title">
+      <div class="section-intro">
+        <p class="eyebrow">The reading room</p>
+        <h2 id="features-title">From the first page<br> to the year in review.</h2>
+      </div>
+      <div class="feature-grid">
+        <article class="feature feature-library">
+          <div class="feature-copy">
+            <p class="eyebrow"><span class="feature-icon" aria-hidden="true">▤</span> Library</p>
+            <h3>Your folders become your library.</h3>
+            <p>Point Deft at an ebook folder. Sort by author, build categories, or keep a series in order. If a file moves, Deft can reattach it to your reading history.</p>
+          </div>
+          <img src="screenshots/categories.png" alt="A category showing its books, reading statuses and completion progress" width="1320" height="910" loading="lazy">
+        </article>
+        <article class="feature feature-reader">
+          <div class="feature-copy">
+            <p class="eyebrow"><span class="feature-icon" aria-hidden="true">¶</span> Reader</p>
+            <h3>Make the page yours.</h3>
+            <p>Adjust the type, spacing and theme. Bookmark a page, highlight a passage, or add a note and jump back to it later.</p>
+          </div>
+          <img src="screenshots/reader.png" alt="A book open in Deft's reader with a sepia theme and page navigation" width="1120" height="720" loading="lazy">
+        </article>
+        <article class="feature feature-time">
+          <div class="feature-copy">
+            <p class="eyebrow"><span class="feature-icon" aria-hidden="true">◷</span> Reading history</p>
+            <h3>See what you actually read.</h3>
+            <p>Deft records active reading time as you go. Look back on sessions, set goals, and see which books shaped your year.</p>
+          </div>
+          <img src="screenshots/stats.png" alt="Deft statistics with reading time, books finished, streaks and a calendar heatmap" width="1320" height="910" loading="lazy">
+        </article>
+      </div>
+      <div class="privacy">
+        <div><p class="eyebrow">Offline by design</p><h3>Your reading stays yours.</h3></div>
+        <p>Deft reads your ebook files in place. Your notes, ratings and history stay on the device, and you can export them or save a local backup. Edition lookup only runs when you ask.</p>
+      </div>
+    </section>
+
+    <section id="download" class="download" aria-labelledby="download-title">
+      <div class="frame download-inner">
+        <div>
+          <p class="eyebrow"><span class="status-dot"></span> Windows 10 / 11 · x64</p>
+          <h2 id="download-title">Open a book.</h2>
+          <p>Choose a Windows package from GitHub Releases. Setup and MSI include the offline WebView2 installer. The portable ZIP uses a WebView2 runtime already on the device.</p>
+          <a class="button primary" href="https://github.com/kmab5/deft-desktop/releases">View Windows releases <span aria-hidden="true">↗&#65038;</span></a>
+        </div>
+        <dl class="packages">
+          <div><dt><code>.exe</code> Setup</dt><dd>NSIS installer for everyday use</dd></div>
+          <div><dt><code>.msi</code> Windows Installer</dt><dd>MSI package for managed installs</dd></div>
+          <div><dt><code>.zip</code> Portable</dt><dd>Extract and run with data kept beside Deft</dd></div>
+        </dl>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer frame">
+    <a class="brand" href="./" aria-label="Deft home"><img src="assets/mark.svg" alt="" width="31" height="31"><span>deft</span></a>
+    <p>Free software under GPL-3.0.</p>
+    <nav aria-label="Project links">
+      <a href="https://github.com/kmab5/deft-desktop">Source <span aria-hidden="true">↗&#65038;</span></a>
+      <a href="https://github.com/kmab5/deft-desktop/issues">Issues <span aria-hidden="true">↗&#65038;</span></a>
+    </nav>
+  </footer>
+</body>
+</html>

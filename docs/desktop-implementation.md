@@ -13,7 +13,7 @@ The original design and roadmap are preserved under [plans](../plans). This docu
 | M7 · fixed layout | Local PDF.js worker, DjVu WASM worker and CBZ image source. Fit modes, scroll/paged view, zoom, inversion, page notes, PDF passwords, PDF/DjVu outlines and CBZ RTL. |
 | M8 · conversion | TXT decoding, FB2/FB2 ZIP and Kindle MOBI/KF8 processing, using the same text reader. The cache is versioned by content hash with size and LRU limits. |
 | M9 · exchange | Explicit matching and cover download, Goodreads CSV, Deft Reading Profile schema/sample, SQLite backup/restore and configurable weekly rotation. |
-| M10 · packaging | Windows x64 NSIS installer workflow, optional certificate signing, tag-based releases, keyboard navigation, reduced-motion support and first-run guidance. |
+| M10 · packaging | Windows x64 NSIS, MSI and portable ZIP workflow, optional certificate signing, tag-based releases, GitHub Pages product site, keyboard navigation, reduced-motion support and first-run guidance. |
 
 ## Desktop decisions
 

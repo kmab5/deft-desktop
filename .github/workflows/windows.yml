@@ -1,7 +1,9 @@
-name: Windows desktop
+name: Windows CI and releases
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -10,77 +12,90 @@ permissions:
 
 jobs:
   windows:
-    runs-on: windows-latest
-    timeout-minutes: 45
+    runs-on: windows-2022
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-      - name: Set up Rust
+      - name: Set up Rust x64 MSVC
         shell: pwsh
         run: |
-          rustup toolchain install 1.88.0 --profile minimal --component rustfmt
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt --target x86_64-pc-windows-msvc
           rustup default 1.88.0
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: npm ci
       - run: npm run check
       - run: npm test
       - run: cargo fmt --all -- --check
       - run: cargo test --locked -p deft-core
-      - name: Build Windows installer
-        env:
-          DEFT_SIGNING_PFX: ${{ secrets.DEFT_SIGNING_PFX }}
-          DEFT_SIGNING_PASSWORD: ${{ secrets.DEFT_SIGNING_PASSWORD }}
+      - name: Compile desktop app against the packaged frontend
+        if: github.ref_type != 'tag'
         shell: pwsh
         run: |
-          $buildArgs = @('run', 'tauri', 'build', '--', '--bundles', 'nsis', '--ci')
-          if ($env:DEFT_SIGNING_PFX) {
-            $pfx = Join-Path $env:RUNNER_TEMP 'deft-signing.pfx'
-            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:DEFT_SIGNING_PFX))
-            try {
-              $password = ConvertTo-SecureString $env:DEFT_SIGNING_PASSWORD -AsPlainText -Force
-              $cert = Import-PfxCertificate -FilePath $pfx -Password $password -CertStoreLocation Cert:\CurrentUser\My
-              $cert = $cert | Where-Object HasPrivateKey | Select-Object -First 1
-              if (!$cert) { throw 'No signing certificate with a private key found.' }
-              $config = Join-Path $env:RUNNER_TEMP 'deft-signing.json'
-              @{ bundle = @{ windows = @{
-                certificateThumbprint = $cert.Thumbprint
-                digestAlgorithm = 'sha256'
-                timestampUrl = 'http://timestamp.digicert.com'
-                tsp = $true
-              }}} | ConvertTo-Json -Depth 6 | Set-Content $config
-              $buildArgs += @('--config', $config)
-            } finally {
-              Remove-Item $pfx -ErrorAction SilentlyContinue
-            }
-          }
-          & npm @buildArgs -- --locked
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo build --locked --target x86_64-pc-windows-msvc -p deft-desktop --features tauri/custom-protocol
+      - name: Build and package Windows release
+        if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+        shell: pwsh
+        env:
+          DEFT_TAG: ${{ github.ref_name }}
+          DEFT_SIGNING_PFX: ${{ secrets.DEFT_SIGNING_PFX }}
+          DEFT_SIGNING_PASSWORD: ${{ secrets.DEFT_SIGNING_PASSWORD }}
+        run: ./.github/scripts/package-windows.ps1
       - uses: actions/upload-artifact@v4
+        if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
         with:
-          name: deft-windows-x64-nsis
-          path: target/release/bundle/nsis/*.exe
+          name: deft-windows-x64-release
+          path: release/*
           if-no-files-found: error
+          compression-level: 0
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: windows
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    concurrency:
+      group: windows-release-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: deft-windows-x64-nsis
-          path: installers
-      - name: Publish tagged installer
+          name: deft-windows-x64-release
+          path: release
+      - name: Publish verified assets
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           DEFT_TAG: ${{ github.ref_name }}
         run: |
-          args=(--verify-tag --generate-notes)
-          if [[ "$DEFT_TAG" == v0.* ]]; then args+=(--prerelease); fi
-          gh release create "$DEFT_TAG" installers/*.exe "${args[@]}"
+          set -euo pipefail
+          prefix="deft-${DEFT_TAG}-windows-x64"
+          assets=("$prefix-setup.exe" "$prefix.msi" "$prefix-portable.zip" "SHA256SUMS.txt")
+          cd release
+          sha256sum --check SHA256SUMS.txt
+          for asset in "${assets[@]}"; do test -s "$asset"; done
+          if state=$(gh release view "$DEFT_TAG" --json isDraft,assets); then
+            if [[ "$(jq -r .isDraft <<< "$state")" == false ]]; then
+              for asset in "${assets[@]}"; do
+                jq -e --arg name "$asset" 'any(.assets[]; .name == $name)' <<< "$state" > /dev/null
+              done
+              exit 0
+            fi
+            gh release upload "$DEFT_TAG" "${assets[@]}" --clobber
+          else
+            flags=(--draft --verify-tag --generate-notes)
+            if [[ "$DEFT_TAG" == v0.* ]]; then flags+=(--prerelease); fi
+            gh release create "$DEFT_TAG" "${flags[@]}" "${assets[@]}"
+          fi
+          gh release edit "$DEFT_TAG" --draft=false

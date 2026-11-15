@@ -4,10 +4,10 @@
 mod desktop;
 mod operations;
 mod publication;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use desktop::Desktop;
 use serde_json::Value;
-use tauri::{ipc::Response, Emitter, Manager};
+use tauri::{ipc::Response, Emitter, Manager, WebviewWindowBuilder};
 
 #[tauri::command]
 async fn deft(window: tauri::WebviewWindow, op: String, args: Value) -> Result<Value, String> {
@@ -50,6 +50,21 @@ async fn publication_cache(
     .map_err(|error| format!("{error:#}"))
 }
 
+#[cfg(windows)]
+fn portable_data_directory() -> Result<Option<std::path::PathBuf>> {
+    let executable = std::env::current_exe().context("Finding Deft's executable")?;
+    let folder = executable.parent().context("Finding Deft's folder")?;
+    Ok(folder
+        .join("portable.flag")
+        .is_file()
+        .then(|| folder.join("DeftData")))
+}
+
+#[cfg(not(windows))]
+fn portable_data_directory() -> Result<Option<std::path::PathBuf>> {
+    Ok(None)
+}
+
 fn run() -> Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -60,8 +75,27 @@ fn run() -> Result<()> {
         }))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let data = app.path().app_local_data_dir()?;
-            app.manage(Desktop::new(data)?);
+            let portable = portable_data_directory()?;
+            let data = match &portable {
+                Some(folder) => folder.clone(),
+                None => app.path().app_local_data_dir()?,
+            };
+            app.manage(Desktop::new(data).context("Opening Deft's data directory")?);
+            let mut window = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .context("Finding the main window configuration")?
+                .clone();
+            if let Some(folder) = portable {
+                let profile = folder.join("WebView2");
+                std::fs::create_dir_all(&profile)
+                    .context("Creating Deft's portable WebView2 profile")?;
+                window.data_directory = Some(profile);
+            }
+            WebviewWindowBuilder::from_config(app, &window)?.build()?;
             let handle = app.handle().clone();
             let worker = handle.clone();
             tauri::async_runtime::spawn_blocking(move || {

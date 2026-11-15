@@ -4,7 +4,9 @@ Use a Windows 10/11 x64 test computer and copies of your ebooks. Keep the origin
 
 ## Installation and sources
 
-- [ ] Build the NSIS package with the commands in the README. Install as the current user and launch from Start. Verify that the installer can set up WebView2 offline on a machine that needs it.
+- [ ] Install and launch both the NSIS and MSI packages on a Windows test machine. Verify that each installer can set up WebView2 offline.
+- [ ] Extract the portable ZIP to a writable folder and launch Deft.exe on a machine with WebView2. Verify that its database, cache and WebView2 profile live under DeftData beside the executable. Close Deft, move the extracted folder, and verify that the library data opens from the moved folder.
+- [ ] Compare each downloaded package against SHA256SUMS.txt.
 - [ ] Start Deft again and verify that it focuses the existing window. Check narrow and maximized window sizes, system light/dark mode, display scaling and keyboard focus.
 - [ ] Add a folder with nested EPUB, TXT, FB2, MOBI, AZW, AZW3, PDF, DjVu and CBZ fixtures. Include a Unicode filename and a duplicate with a different name.
 - [ ] Exclude and re-include a subfolder. Move a book, edit a copy in place, delete a copy, disconnect a drive and rescan. Verify that duplicates share history, missing books retain it, and changed content creates a separate Book.

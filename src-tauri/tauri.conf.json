@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Deft",
         "width": 1320,
         "height": 870,
