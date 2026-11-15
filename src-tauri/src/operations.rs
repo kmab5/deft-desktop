@@ -166,10 +166,11 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
                     }
                     settings.insert(key.clone(), value.clone());
                 }
-                catalog::populate_series(state);
-                Ok(())
-            })?;
-            Ok(Value::Null)
+                if patch.get("seriesAutoFill").and_then(Value::as_bool) == Some(true) {
+                    catalog::populate_series(state);
+                }
+                Ok(state.settings.clone())
+            })
         }
         "importFont" => {
             let Some(path) = selected(
@@ -342,6 +343,13 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
                 .unwrap_or_default()
                 .clamp(-840, 840) as i32;
             for id in book_ids(&args)? {
+                if outcome == BookState::NotRead
+                    && active
+                        .as_ref()
+                        .is_some_and(|visit| visit.session.book_id == id)
+                {
+                    *active = None;
+                }
                 tracking::set_state(
                     state,
                     &id,
@@ -441,6 +449,9 @@ pub fn run(window: &WebviewWindow, op: &str, args: Value) -> Result<Value> {
                     "Unknown category sort."
                 );
                 category.order_mode = order.into();
+            }
+            if let Some(reverse) = args["sortReversed"].as_bool() {
+                category.sort_reversed = reverse;
             }
             if let Some(rating) = args.get("rating") {
                 category.rating = catalog::rating(rating)?;

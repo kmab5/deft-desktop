@@ -29,7 +29,7 @@ export interface CategoryType {id: string; name: string; builtIn: boolean}
 export interface Member {bookId: string; position: number; suggested: boolean; addedAt: number}
 export interface Category {
   id: string; name: string; description: string; typeIds: string[]; members: Member[];
-  cover?: string; rating?: number | null; orderMode: string; autoCreated: boolean; createdAt: number;
+  cover?: string; rating?: number | null; orderMode: string; sortReversed?: boolean; autoCreated: boolean; createdAt: number;
 }
 export interface Annotation {
   id: string; bookId: string; kind: 'bookmark' | 'highlight' | 'page'; locator: Locator;

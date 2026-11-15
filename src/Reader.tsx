@@ -145,6 +145,7 @@ const FixedPage = memo(function FixedPage({ source, page, display, viewport, fit
 export function Reader({ book, mode, jump, estimateSeconds, settings, annotations, close, updateSettings, refresh, notice }: ReaderProps) {
   const [opened, setOpened] = useState<OpenedBook>();
   const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [password, setPassword] = useState<{ submit: (value: string) => void; incorrect: boolean }>();
   const [passwordText, setPasswordText] = useState('');
   const [ready, setReady] = useState(false);
@@ -152,9 +153,7 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
   const [panel, setPanel] = useState<ReadingPanel>(null);
   const [chrome, setChrome] = useState(true);
   const [immersive, setImmersive] = useState(false);
-  const [preferences, setPreferences] = useState<Record<string, unknown>>(book.fixed ?? {});
-  const [temporarySettings, setTemporarySettings] = useState<Partial<Settings>>({});
-  const currentSettings = { ...settings, ...temporarySettings };
+  const currentSettings = settings;
   const [selection, setSelection] = useState<SelectionDraft>();
   const [draft, setDraft] = useState<AnnotationDraft>();
   const [query, setQuery] = useState('');
@@ -192,13 +191,13 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
   const chapters = opened?.chapters;
   const count = opened?.pages?.count ?? chapters?.length ?? 0;
   const chapter = chapters?.[cursor.chapter];
-  const layout = isFixed ? (preferences.layout ?? currentSettings.readerLayout ?? 'paged') : (currentSettings.readerLayout ?? 'paged');
+  const layout = currentSettings.readerLayout ?? 'paged';
   const scrolling = layout === 'scroll';
-  const zoom = clamp(Number(preferences.zoom ?? 1), 0.5, 4);
-  const rtl = book.format === 'cbz' && Boolean(preferences.rtl);
-  const crop = isPdfOrDjvu(book) && Boolean(preferences.crop);
-  const invert = Boolean(preferences.invert ?? currentSettings.readerFixedInvert ?? false);
-  const fit = String(preferences.fit ?? currentSettings.readerFixedFit ?? 'page');
+  const zoom = clamp(Number(currentSettings.readerFixedZoom ?? 1), 0.5, 4);
+  const rtl = book.format === 'cbz' && Boolean(currentSettings.readerFixedRtl);
+  const crop = isPdfOrDjvu(book) && Boolean(currentSettings.readerFixedCrop);
+  const invert = Boolean(currentSettings.readerFixedInvert);
+  const fit = String(currentSettings.readerFixedFit ?? 'page');
   const tracking = useReaderTracking({
     bookId: openedId, mode, locator: cursor, enabled: ready,
     idleMinutes: Number(isFixed
@@ -218,10 +217,10 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
     const { book: original, jump: destination, mode: entryMode } = initialBook.current;
     async function load() {
       try {
-        let publication = await rpc<Publication>('open', { bookId: openedId });
+        let publication = await rpc<Publication>('open', { bookId: openedId }, request.signal);
         request.signal.throwIfAborted();
         if (publication.kind === 'mobi') {
-          publication = await openKindle(await publicationBytes(openedId));
+          publication = await openKindle(await publicationBytes(openedId, undefined, request.signal));
           request.signal.throwIfAborted();
           void invoke('publication_cache', { bookId: openedId, publication }).catch(() => {});
         }
@@ -271,7 +270,7 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
       request.abort();
       pageSource?.close();
     };
-  }, [openedId]);
+  }, [openedId, loadAttempt]);
 
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => {
@@ -576,29 +575,11 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
   }
 
   function patchSettings(patch: Partial<Settings>) {
-    setTemporarySettings(previous => ({ ...previous, ...patch }));
-    void Promise.resolve(updateSettings(patch)).catch(error => notice(describeError(error))).finally(() => {
-      setTemporarySettings(previous => {
-        const next = { ...previous };
-        for (const key of Object.keys(patch)) if (next[key] === patch[key]) delete next[key];
-        return next;
-      });
-    });
-  }
-
-  const fixedSave = useRef(Promise.resolve());
-  const fixedLive = useRef(preferences);
-  function patchFixed(patch: Record<string, unknown>) {
-    const value = { ...fixedLive.current, ...patch };
-    fixedLive.current = value;
-    setPreferences(value);
-    fixedSave.current = fixedSave.current.then(async () => {
-      await rpc('bookPatch', { bookId: openedId, fixed: value });
-    }).catch(error => { notice(describeError(error)); });
+    void Promise.resolve(updateSettings(patch)).catch(error => notice(describeError(error)));
   }
 
   function changeZoom(value: number) {
-    patchFixed({ zoom: Math.round(clamp(value, 0.5, 4) * 100) / 100 });
+    patchSettings({ readerFixedZoom: Math.round(clamp(value, 0.5, 4) * 100) / 100 });
     tracking.move(location.current, true);
   }
 
@@ -613,7 +594,6 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
     closeRequested.current = true;
     setBusy(true);
     await tracking.close();
-    await fixedSave.current;
     if (immersive) await rpc('fullscreen', { value: false }).catch(() => {});
     await close();
   }
@@ -949,7 +929,10 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
       onPointerLeave={() => { pointerStart.current = null; }}
       onTouchStart={onPhoneTouchStart} onTouchEnd={onPhoneTouchEnd}>
       {loadError ? <div className="reader-empty" role="alert"><BookOpen size={30} /><h2>couldn’t open this book</h2>
-        <p>{loadError}</p><button className="reader-primary" onClick={() => void leave()}>back to library</button></div>
+        <p>{loadError}</p><div className="row">
+          <button className="reader-primary" onClick={() => { setLoadError(''); setLoadAttempt(attempt => attempt + 1); }}>try again</button>
+          <button className="reader-subtle" onClick={() => void leave()}>back to library</button>
+        </div></div>
         : !opened ? <div className="reader-empty" role="status"><LoaderCircle className="reader-spin" size={27} />
           <h2>opening book</h2><p>{book.title}</p></div>
           : opened.pages
@@ -1031,7 +1014,7 @@ export function Reader({ book, mode, jump, estimateSeconds, settings, annotation
         <ReaderButton label="close panel" onClick={() => setPanel(null)}><X size={20} /></ReaderButton>
       </div>
       {panel === 'settings' && <ReaderPreferences settings={currentSettings} patch={patchSettings}
-        compact fixed={isFixed ? preferences : undefined} bookFormat={book.format} onFixed={patchFixed} />}
+        compact bookFormat={book.format} />}
       {panel === 'contents' && <>
         <div className="reader-panel-tools">
           <button className="reader-subtle" onClick={() => setPanel('bookmarks')}><Bookmark size={15} /> bookmarks & notes</button>

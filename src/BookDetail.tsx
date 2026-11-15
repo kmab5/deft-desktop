@@ -9,7 +9,7 @@ import { Cover, Modal, Progress, StatePill, dateInput, dateLabel, filesize, inpu
 export type Act = (op: string, args?: Record<string, unknown>) => Promise<void>;
 export type MatchEntry = { book: Book; candidates?: Edition[]; error?: string };
 export const starRatings = Array.from({length:10}, (_, index) => (index + 1) / 2);
-const outcomes = ['reading', 'paused', 'finished', 'abandoned'] as const;
+const outcomes = ['not_read', 'reading', 'paused', 'finished', 'abandoned'] as const;
 
 export function Rating({ value, change, label = 'rating' }: { value?: number | null; change: (rating: number | null)=>void; label?: string }) {
   return <label className="rating-select"><Star size={17}/>
@@ -21,7 +21,7 @@ export function Rating({ value, change, label = 'rating' }: { value?: number | n
 }
 
 export function StateDialog({ books, close, act }: { books: Book[]; close:()=>void; act:Act }) {
-  const [outcome, setOutcome] = useState<BookState>(books.length === 1 && books[0].state !== 'not_read' ? books[0].state : 'reading');
+  const [outcome, setOutcome] = useState<BookState>(books.length === 1 ? books[0].state : 'reading');
   const [date, setDate] = useState(localDay());
   const [busy, setBusy] = useState(false);
   return <Modal title={books.length === 1 ? 'set reading state' : `set state · ${books.length} books`} close={close}>
@@ -39,6 +39,7 @@ export function StateDialog({ books, close, act }: { books: Book[]; close:()=>vo
       <div className="state-choices">
         {outcomes.map(value => <button className="button" type="button" key={value} aria-pressed={outcome === value} onClick={()=>setOutcome(value)}><StatePill state={value}/></button>)}
       </div>
+      {outcome === 'not_read' && <p className="muted">Resets the reading position. Past sessions, notes, and finish dates stay in your history.</p>}
       {outcome === 'finished' && <label className="field">date finished<input type="date" required max={localDay()} value={date} onChange={event=>setDate(event.target.value)}/></label>}
       <div className="dialog-actions"><button type="button" className="button" onClick={close}>cancel</button><button className="button primary" disabled={busy}>save state</button></div>
     </form>
@@ -49,19 +50,21 @@ export function AddCategoryDialog({ data, books, close, act }: { data: Snapshot;
   const [category, setCategory] = useState(data.categories[0]?.id ?? '');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   return <Modal title="add to a category" close={close}>
     <form className="stack dialog-form" onSubmit={async event => {
-      event.preventDefault(); setBusy(true);
+      event.preventDefault(); setBusy(true); setError('');
       try {
         const id = category || (await rpc<{id:string}>('categoryCreate', {name})).id;
         await act('categoryMembership', {id, bookIds:books.map(book=>book.id), action:'add'});
         close();
-      } catch { setBusy(false); }
+      } catch (failure) { setError(describeError(failure)); setBusy(false); }
     }}>
       <label className="field">category<select value={category} onChange={event=>setCategory(event.target.value)}>
         <option value="">new category…</option>{data.categories.map(entry=><option key={entry.id} value={entry.id}>{entry.name}</option>)}
       </select></label>
       {!category && <label className="field">name<input required value={name} onChange={event=>setName(event.target.value)}/></label>}
+      {error && <p className="error-copy" role="alert">{error}</p>}
       <div className="dialog-actions"><button type="button" className="button" onClick={close}>cancel</button><button className="button primary" disabled={busy}>add {books.length === 1 ? 'book' : 'books'}</button></div>
     </form>
   </Modal>;
@@ -148,6 +151,8 @@ function RunDialog({ run, act, close }: { run:ReadThrough; act:Act; close:()=>vo
 export function BookDetail({ book, data, back, read, openBook, openAuthor, openCategory, openNotes, act, notice, match }:
   {book:Book; data:Snapshot; back:()=>void; read:(book:Book)=>void; openBook:(book:Book)=>void;openAuthor:(id:string)=>void;
     openCategory:(id:string)=>void;openNotes:(id:string)=>void;act:Act;notice:(message:string)=>void;match:(ids:string[])=>Promise<void>}) {
+  const [favoritePending, setFavoritePending] = useState<boolean>();
+  const favorite = favoritePending ?? book.favorite;
   const [dialog, setDialog] = useState('');
   const [selectedRun, setRun] = useState<ReadThrough>();
   const [review, setReview] = useState(book.review);
@@ -181,7 +186,10 @@ export function BookDetail({ book, data, back, read, openBook, openAuthor, openC
           <button className="button primary" onClick={()=>read(book)}><BookOpen size={17}/>{book.progress > 0 && book.state !== 'finished' ? 'continue reading' : 'read'}</button>
           <button className="button" onClick={()=>setDialog('state')}>set state</button>
           <Rating value={book.rating} change={rating=>patch({rating})}/>
-          <button className="icon-button framed" aria-label="favorite" aria-pressed={book.favorite} onClick={()=>patch({favorite:!book.favorite})}><Heart className={book.favorite ? 'favorite-icon' : ''} fill={book.favorite ? 'currentColor' : 'none'} size={19}/></button>
+          <button className="icon-button framed" aria-label="favorite" aria-pressed={favorite} disabled={favoritePending !== undefined} onClick={() => {
+            setFavoritePending(!favorite);
+            void act('bookPatch', { bookId: book.id, favorite: !favorite }).catch(() => {}).finally(() => setFavoritePending(undefined));
+          }}><Heart className={favorite ? 'favorite-icon' : ''} fill={favorite ? 'currentColor' : 'none'} size={19}/></button>
           <button className="icon-button framed" aria-label="book actions" onClick={()=>setDialog('actions')}><Ellipsis size={20}/></button>
         </div>
       </div>

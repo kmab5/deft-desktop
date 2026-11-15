@@ -14,7 +14,6 @@ export type ReaderSection = 'text' | 'theme' | 'page';
 export type ReaderTheme = { id: string; name: string; background: string; text: string; accent: string };
 export type ImportedFont = { id: string; name: string; data: string };
 export type PreferencePatch = Record<string, unknown>;
-export type ReaderFixedPrefs = Record<string, unknown>;
 
 export const READER_THEMES: ReaderTheme[] = [
   { id: 'light', name: 'light', background: '#FBF9F4', text: '#1B1B1F', accent: '#7D34B2' },
@@ -46,6 +45,7 @@ type SettingsProps = {
   refresh: () => void | Promise<void>;
   notice: (message: string) => void;
   initialSection?: Section;
+  saveSettings: (patch: PreferencePatch) => Promise<void>;
 };
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -137,21 +137,18 @@ function ThemeSwatches({ label, themes, current, choose }: {
     </button>)}</div>;
 }
 
-export function ReaderPreferences({ settings, patch, section, compact, fixed, bookFormat, onFixed }: {
+export function ReaderPreferences({ settings, patch, section, compact, bookFormat }: {
   settings: Preferences;
   patch: (patch: PreferencePatch) => void | Promise<void>;
   section?: ReaderSection;
   compact?: boolean;
-  fixed?: ReaderFixedPrefs | null;
   bookFormat?: string;
-  onFixed?: (patch: PreferencePatch) => void | Promise<void>;
 }) {
   const [tab, setTab] = useState<ReaderSection>('text');
   const active = section ?? tab;
   const change = (key: string) => (value: unknown) => patch({ [key]: value });
-  const changeFixed = (key: string) => (value: unknown) => onFixed?.({ [key]: value });
   const customThemes = (settings.customThemes ?? []) as ReaderTheme[];
-  const fixedFormat = bookFormat ?? fixed?.format;
+  const fixed = ['pdf', 'djvu', 'cbz'].includes(bookFormat ?? '');
   const fonts = (settings.importedFonts ?? []) as ImportedFont[];
   const themes = [...READER_THEMES, ...customThemes];
   const swatchOptions = themes.map(theme => ({ value: theme.id, label: theme.name }));
@@ -186,23 +183,17 @@ export function ReaderPreferences({ settings, patch, section, compact, fixed, bo
       </span></label>
     </div>}
     {active === 'page' && <div className="pref-rows">
-      {fixed && onFixed && <>
-        <Choice label="this book's layout" value={String(fixed.layout ?? settings.readerLayout ?? 'paged')} options={['paged', 'scroll']} change={changeFixed('layout')} />
-        <Choice label="this book's fit" value={String(fixed.fit ?? settings.readerFixedFit ?? 'page')} options={lengthOptions} change={changeFixed('fit')} />
-        <Switch label="invert this book" value={Boolean(fixed.invert ?? settings.readerFixedInvert)} change={changeFixed('invert')} />
-        {fixedFormat === 'cbz'
-          ? <Switch label="right-to-left pages" value={fixed.rtl === true} change={changeFixed('rtl')} />
-          : <Switch label="crop margins" value={fixed.crop === true} change={changeFixed('crop')} />}
-      </>}
-      {(!fixed || !compact) && <Choice label="page layout" value={settings.readerLayout ?? 'paged'} options={['paged', 'scroll']} change={change('readerLayout')} />}
+      <Choice label="page layout" value={settings.readerLayout ?? 'paged'} options={['paged', 'scroll']} change={change('readerLayout')} />
       <Choice label="page-turn animation" value={settings.readerAnimation ?? 'none'} options={['none', 'slide']} change={change('readerAnimation')} />
       <Switch label="status line" value={settings.readerStatusLine === true} change={change('readerStatusLine')} />
       <Switch label="volume keys turn pages" help={!compact ? 'Applies on keyboards that deliver media keys to the app.' : undefined}
         value={settings.readerVolumeKeys === true} change={change('readerVolumeKeys')} />
       <Switch label="keep screen on while reading" value={settings.readerKeepAwake !== false} change={change('readerKeepAwake')} />
-      {!compact && <>
-        <Choice label="fixed-layout default fit" value={settings.readerFixedFit ?? 'page'} options={lengthOptions} change={change('readerFixedFit')} />
-        <Switch label="invert fixed-layout books by default" value={settings.readerFixedInvert === true} change={change('readerFixedInvert')} />
+      {(!compact || fixed) && <>
+        <Choice label="fixed-layout fit" value={settings.readerFixedFit ?? 'page'} options={lengthOptions} change={change('readerFixedFit')} />
+        <Switch label="invert fixed-layout books" value={settings.readerFixedInvert === true} change={change('readerFixedInvert')} />
+        {(!compact || bookFormat === 'cbz') && <Switch label="right-to-left comic pages" value={settings.readerFixedRtl === true} change={change('readerFixedRtl')} />}
+        {(!compact || bookFormat !== 'cbz') && <Switch label="crop PDF and DjVu margins" value={settings.readerFixedCrop === true} change={change('readerFixedCrop')} />}
       </>}
     </div>}
   </div>;
@@ -266,7 +257,7 @@ function TokenEntry({ value, save }: { value: string; save: (value: string) => v
 
 type Exports = { matchedOnly: boolean; includeReviews: boolean; includeNotes: boolean };
 
-export function Settings({ data, refresh, notice, initialSection = 'library' }: SettingsProps) {
+export function Settings({ data, refresh, notice, saveSettings, initialSection = 'library' }: SettingsProps) {
   const [section, setSection] = useState<Section>(initialSection);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -279,9 +270,7 @@ export function Settings({ data, refresh, notice, initialSection = 'library' }: 
   const confirmDialog = useRef<HTMLDialogElement>(null);
   const mutation = useRef(false);
   const patchQueue = useRef<Promise<void>>(Promise.resolve());
-  const patchNumber = useRef(0);
-  const [pendingPrefs, setPendingPrefs] = useState<{ id: number; values: PreferencePatch }[]>([]);
-  const settings = Object.assign({}, data.settings, ...pendingPrefs.map(pending => pending.values)) as Preferences;
+  const settings = data.settings as Preferences;
   const enabledFormats = (settings.formats ?? [...formats]) as string[];
   const imported = (settings.importedFonts ?? []) as ImportedFont[];
   const customThemes = (settings.customThemes ?? []) as ReaderTheme[];
@@ -323,18 +312,7 @@ export function Settings({ data, refresh, notice, initialSection = 'library' }: 
 
   function patch(prefs: PreferencePatch) {
     setError('');
-    const id = ++patchNumber.current;
-    setPendingPrefs(pending => [...pending, { id, values: prefs }]);
-    const request = patchQueue.current.then(async () => {
-      try {
-        await rpc('settingsPatch', { patch: prefs });
-        await refresh();
-      } catch (failure) {
-        setError(errorMessage(failure));
-      } finally {
-        setPendingPrefs(pending => pending.filter(item => item.id !== id));
-      }
-    });
+    const request = saveSettings(prefs).catch(failure => setError(errorMessage(failure)));
     patchQueue.current = request;
     return request;
   }
@@ -343,7 +321,7 @@ export function Settings({ data, refresh, notice, initialSection = 'library' }: 
   function setFormats(next: string[]) {
     if (!data.folders.length) return void set('formats')(next);
     void run('scan', async () => {
-      await rpc('settingsPatch', { patch: { formats: next } });
+      await saveSettings({ formats: next });
       return rpc<ScanReport>('scan', { force: true });
     }, setReport);
   }

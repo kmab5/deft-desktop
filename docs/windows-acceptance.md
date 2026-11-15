@@ -14,6 +14,10 @@ Use a Windows 10/11 x64 test computer and copies of your ebooks. Keep the origin
 
 ## Reading and organization
 
+- [ ] Open the library with enough books to overflow a 700 × 520 window. Scroll to both ends and verify that the sidebar and top bar stay fixed and the workspace stays within the window.
+- [ ] Change the reader theme or text size in one book, then open another and restart the app. Check that both books and Settings show the same preference. For fixed-layout books, verify the same behavior for fit and inversion.
+- [ ] Favorite a book, create and edit a category, confirm a suggested member, and restart to verify persistence. Reverse the library and category sort order.
+- [ ] Mark a book `not read` after finishing it. Verify the current position resets and the prior finish, notes and sessions remain.
 - [ ] Open each test format. Verify TOCs and links, reflow fonts/themes, search, page controls and saved position after reopening. Test fixed fit modes, crop, invert, note and zoom, and CBZ right-to-left navigation.
 - [ ] Open a password-protected PDF with an incorrect password and then the correct password. Verify that a protected EPUB or Kindle file is labelled and its reader stays closed.
 - [ ] Read for over a minute, switch windows, wait, then return. Verify that the inactive segment is excluded. Test idle cutoff, screen lock, brief visits, crash checkpoint recovery and a browse session on a finished book.

@@ -7,6 +7,7 @@ pub mod model;
 pub mod scanner;
 pub mod store;
 pub mod tracking;
+pub mod transfer;
 
 pub fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()

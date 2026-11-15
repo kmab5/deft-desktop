@@ -49,7 +49,7 @@
   position: absolute;
   inset: 0;
   scroll-behavior: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: none;
   background: var(--r-bg);
 }
 
@@ -423,3 +423,6 @@
 .reader-shell *::after { box-sizing: border-box; }
 .reader-chapter { user-select: text; }
 .reader-dialog .reader-subtle[aria-pressed="true"] { color: var(--r-accent); }
+
+.reader-shell select::picker(select) { background: var(--r-bg); color: var(--r-fg); border-color: var(--r-line); }
+.reader-shell select option:checked { color: var(--r-accent); }

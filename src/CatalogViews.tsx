@@ -220,7 +220,7 @@ function AddMembers({ books, category, add, close }: {
 
 function sortMembers(category: Category, byId: Map<string, Book>) {
   const series = category.typeIds.includes('series');
-  return [...category.members].sort((a, b) => {
+  const ordered = [...category.members].sort((a, b) => {
     const first = byId.get(a.bookId);
     const second = byId.get(b.bookId);
     if (series || category.orderMode === 'manual') return a.position - b.position || a.addedAt - b.addedAt;
@@ -230,6 +230,7 @@ function sortMembers(category: Category, byId: Map<string, Book>) {
     if (category.orderMode === 'rating') return (second?.rating ?? 0) - (first?.rating ?? 0) || title;
     return title;
   });
+  return category.sortReversed && !series && category.orderMode !== 'manual' ? ordered.reverse() : ordered;
 }
 
 function PositionEditor({ member, title, save, close }: { member: Member; title: string; save: (position: number) => Promise<void>; close: () => void }) {
@@ -324,6 +325,11 @@ function CategoryPage({ category, byId, data, act, openCategory, openBook, notic
           <option value="manual">manual</option><option value="title">title</option><option value="author">author</option>
           <option value="added">date added</option><option value="rating">rating</option>
         </select></label>}
+        {!series && !manual && <button type="button" className="icon-button framed" aria-label="reverse category sort order"
+          aria-pressed={Boolean(category.sortReversed)} title="reverse category sort order" disabled={busy}
+          onClick={() => void quick(() => patch({ sortReversed: !category.sortReversed }))}>
+          {category.sortReversed ? <ArrowUp size={17} /> : <ArrowDown size={17} />}
+        </button>}
       </div></header>
       {!visible.length && <Empty title="no books in this category.">Choose books from your library to fill it.</Empty>}
       {visible.length > 0 && <ol className="catalog-members">

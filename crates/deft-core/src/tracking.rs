@@ -73,7 +73,7 @@ pub fn visit(state: &mut State, book_id: &str, mode: Mode, time: i64) -> Result<
         !browse || latest.is_some(),
         "This book has no read-through to browse."
     );
-    let first = reset || latest.is_none();
+    let first = reset || book.marked_unread || latest.is_none();
     let run_id = if first {
         id()
     } else {
@@ -136,6 +136,9 @@ impl Visit {
                 zone_offset_minutes,
                 ..ReadThrough::default()
             });
+            if let Ok(book) = catalog::book_mut(state, &self.session.book_id) {
+                book.marked_unread = false;
+            }
             self.needs_run = false;
         } else if self.reopen_run {
             if let Some(run) = state
@@ -237,28 +240,35 @@ pub fn set_state(
     time: i64,
     visit: Option<&mut Visit>,
 ) -> Result<()> {
-    catalog::book(state, book_id)?;
-    ensure!(
-        outcome != BookState::NotRead,
-        "Delete the read-throughs to reset reading state."
-    );
-    let zone = zone_offset_minutes.clamp(-840, 840);
-    if let Some(visit) = visit {
-        if visit.session.book_id == book_id && !visit.session.browsing {
-            visit.register_run(state, zone);
-        }
+    let book = catalog::book_mut(state, book_id)?;
+    if outcome == BookState::NotRead {
+        book.marked_unread = true;
+        book.state = BookState::NotRead;
+        book.locator = None;
+        book.progress = 0.0;
+        book.last_opened_at = None;
+        return Ok(());
     }
+    let mut new_attempt = book.marked_unread;
+    let zone = zone_offset_minutes.clamp(-840, 840);
     let end = date.unwrap_or(time);
     ensure!(
         end >= 0 && end <= time.saturating_add(86_400_000),
         "Enter a valid finish date."
     );
-    if let Some(run) = state
+    book.marked_unread = false;
+    if let Some(visit) = visit {
+        if visit.session.book_id == book_id && !visit.session.browsing {
+            visit.register_run(state, zone);
+            new_attempt = false;
+        }
+    }
+    let latest = state
         .read_throughs
         .iter_mut()
         .rev()
-        .find(|run| run.book_id == book_id)
-    {
+        .find(|run| run.book_id == book_id);
+    if let Some(run) = latest.filter(|_| !new_attempt) {
         run.outcome = outcome;
         run.ended_at = (outcome != BookState::Reading).then_some(end);
         if end < run.started_at && run.ended_at.is_some() {
@@ -365,6 +375,52 @@ mod tests {
         assert_eq!(data.read_throughs.len(), 1);
         assert!(data.sessions[1].browsing);
         assert_eq!(data.books[0].state, BookState::Finished);
+        Ok(())
+    }
+
+    #[test]
+    fn marking_unread_preserves_history_and_starts_a_distinct_attempt() -> Result<()> {
+        let mut state = State::default();
+        state.books.push(Book {
+            id: "book".into(),
+            favorite: true,
+            ..Book::default()
+        });
+        let mut first = visit(&mut state, "book", Mode::Normal, 1000)?;
+        first.update(&mut state, checkpoint(&first, 60_000), 62_000)?;
+        set_state(
+            &mut state,
+            "book",
+            BookState::Finished,
+            None,
+            0,
+            70_000,
+            Some(&mut first),
+        )?;
+        let finished_id = state.read_throughs[0].id.clone();
+
+        set_state(
+            &mut state,
+            "book",
+            BookState::NotRead,
+            None,
+            0,
+            75_000,
+            None,
+        )?;
+        state.sync_book_state("book");
+        assert_eq!(state.books[0].state, BookState::NotRead);
+        assert_eq!(state.books[0].progress, 0.0);
+        assert!(state.books[0].locator.is_none());
+        assert!(state.books[0].favorite);
+        assert_eq!(state.sessions[0].read_through_id, finished_id);
+
+        let mut second = visit(&mut state, "book", Mode::Normal, 80_000)?;
+        second.update(&mut state, checkpoint(&second, 60_000), 141_000)?;
+        assert_eq!(state.books[0].state, BookState::Reading);
+        assert_eq!(state.read_throughs.len(), 2);
+        assert_eq!(state.read_throughs[0].outcome, BookState::Finished);
+        assert_ne!(state.sessions[1].read_through_id, finished_id);
         Ok(())
     }
 }

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { nativeBookBytes } from './api';
 import { clamp, pageLocator, type Publication, type SearchHit, type TocEntry } from './readerText';
 
 export interface PageSource {
@@ -12,8 +12,7 @@ export interface PageSource {
 export type BinaryPublication = Exclude<Publication['kind'], 'text' | 'mobi'>;
 type PasswordRequest = (submit: (password: string) => void, incorrect: boolean) => void;
 
-export const publicationBytes = (bookId: string, index: number | null = null) =>
-  invoke<ArrayBuffer>('publication_asset', { bookId, index });
+export const publicationBytes = nativeBookBytes;
 
 function imageType(bytes: Uint8Array): string {
   if (bytes[0] === 255 && bytes[1] === 216) return 'image/jpeg';
@@ -26,12 +25,12 @@ function imageType(bytes: Uint8Array): string {
   throw new Error('This comic page uses an unsupported image format.');
 }
 
-function comic(bookId: string, count: number): PageSource {
+function comic(bookId: string, count: number, signal: AbortSignal): PageSource {
   return {
     count,
     toc: async () => [],
     async render(index) {
-      const bytes = await publicationBytes(bookId, index);
+      const bytes = await publicationBytes(bookId, index, signal);
       return new Blob([bytes], { type: imageType(new Uint8Array(bytes)) });
     },
     close() {},
@@ -241,8 +240,8 @@ export async function openPages(
   if (publication.kind === 'images') {
     const count = clamp(publication.pageCount ?? 0, 0, 100_000);
     if (!count) throw new Error('There are no image pages in this comic.');
-    return comic(bookId, count);
+    return comic(bookId, count, signal);
   }
-  const bytes = await publicationBytes(bookId);
+  const bytes = await publicationBytes(bookId, undefined, signal);
   return publication.kind === 'pdf' ? pdf(bytes, password, signal) : djvu(bytes, signal);
 }

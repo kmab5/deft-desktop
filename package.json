@@ -1,6 +1,6 @@
 {
   "name": "deft-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "An offline ebook reader and reading tracker",
   "license": "GPL-3.0-only",
   "type": "module",

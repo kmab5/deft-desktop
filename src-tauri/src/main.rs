@@ -5,14 +5,18 @@ mod desktop;
 mod operations;
 mod publication;
 use anyhow::{anyhow, Context, Result};
+use deft_core::transfer::Transfers;
 use desktop::Desktop;
 use serde_json::Value;
-use tauri::{ipc::Response, Emitter, Manager, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewWindowBuilder};
 
 #[tauri::command]
 async fn deft(window: tauri::WebviewWindow, op: String, args: Value) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        operations::run(&window, &op, args).map_err(|error| format!("{error:#}"))
+        let result = operations::run(&window, &op, args);
+        result
+            .and_then(|value| window.state::<Transfers>().json(value))
+            .map_err(|error| format!("{error:#}"))
     })
     .await
     .map_err(|error| error.to_string())?
@@ -23,11 +27,12 @@ async fn publication_asset(
     app: tauri::AppHandle,
     book_id: String,
     index: Option<usize>,
-) -> Result<Response, String> {
+) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let desktop = app.state::<Desktop>();
         let book = desktop.source(&book_id)?;
-        publication::asset(&book, index).map(Response::new)
+        app.state::<Transfers>()
+            .put(publication::asset(&book, index)?)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -65,8 +70,24 @@ fn portable_data_directory() -> Result<Option<std::path::PathBuf>> {
     Ok(None)
 }
 
+#[tauri::command]
+fn deft_chunk(app: tauri::AppHandle, id: String, index: usize) -> Result<String, String> {
+    app.state::<Transfers>()
+        .chunk(&id, index)
+        .map_err(|error| format!("{error:#}"))
+}
+
+#[tauri::command]
+fn deft_discard(app: tauri::AppHandle, id: String) {
+    app.state::<Transfers>().discard(&id);
+}
+
 fn run() -> Result<()> {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(windows)]
+    let builder = builder.invoke_system(include_str!("windows-ipc.js"));
+    builder
+        .manage(Transfers::default())
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
@@ -141,7 +162,9 @@ fn run() -> Result<()> {
         .invoke_handler(tauri::generate_handler![
             deft,
             publication_asset,
-            publication_cache
+            publication_cache,
+            deft_chunk,
+            deft_discard
         ])
         .run(tauri::generate_context!())
         .map_err(|error| anyhow!(error))

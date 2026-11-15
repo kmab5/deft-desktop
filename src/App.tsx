@@ -9,7 +9,7 @@ import { Reader } from './Reader';
 import { Settings } from './Settings';
 import { Stats } from './Stats';
 import { summarizeBook } from './statistics';
-import { type Book, type Locator, type ReadingMode, type ScanReport, type Snapshot } from './types';
+import { type Book, type Locator, type ReadingMode, type ScanReport, type Settings as AppSettings, type Snapshot } from './types';
 import { Cover, Mark, Modal } from './ui';
 
 const nav = [
@@ -40,6 +40,11 @@ export function App() {
   const [lastReport,setLastReport] = useState<ScanReport>();
   const [toast,setToast] = useState('');
   const [finished,setFinished] = useState<Book>();
+  const [pendingSettings, setPendingSettings] = useState<{ id: number; patch: Partial<AppSettings> }[]>([]);
+  const settingsWrite = useRef<Promise<void>>(Promise.resolve());
+  const settingsSequence = useRef(0);
+  const settingsRevision = useRef(0);
+  const toastElement = useRef<HTMLDivElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frame = useRef<HTMLElement>(null);
   const refreshEpoch = useRef(0);
@@ -53,14 +58,40 @@ export function App() {
   },[]);
   const refresh = useCallback(async () => {
     const epoch = ++refreshEpoch.current;
+    const revision = settingsRevision.current;
     const snapshot = await rpc<Snapshot>('snapshot');
     if (refreshEpoch.current === epoch) {
-      dataRef.current = snapshot;
-      setData(snapshot);
+      const next = revision === settingsRevision.current ? snapshot : { ...snapshot, settings: dataRef.current.settings };
+      dataRef.current = next;
+      setData(next);
       setLoaded(true);
       setFatal('');
     }
   },[]);
+  const saveSettings = useCallback(async (patch: Partial<AppSettings>) => {
+    const id = ++settingsSequence.current;
+    setPendingSettings(previous => [...previous, { id, patch }]);
+    const write = settingsWrite.current.then(async () => {
+      const saved = await rpc<AppSettings>('settingsPatch', { patch });
+      settingsRevision.current++;
+      const next = { ...dataRef.current, settings: saved ?? { ...dataRef.current.settings, ...patch } };
+      dataRef.current = next;
+      setData(next);
+      if (patch.seriesAutoFill === true) await refresh();
+    });
+    settingsWrite.current = write.catch(() => {});
+    try {
+      await write;
+    } finally {
+      setPendingSettings(previous => previous.filter(entry => entry.id !== id));
+    }
+  }, [refresh]);
+
+  useEffect(() => {
+    const element = toastElement.current;
+    if (toast && element?.showPopover && !element.matches(':popover-open')) element.showPopover();
+  }, [toast]);
+
   useEffect(()=>{
     void refresh().catch(error=>{setLoaded(true);setFatal(describeError(error));});
     const unlistenScan = listen<ScanReport>('deft:scan',event=>{
@@ -74,9 +105,9 @@ export function App() {
     };
   },[notice,refresh]);
   useEffect(()=>{
-    const theme = data.settings.appTheme;
+    const theme = Object.assign({}, data.settings, ...pendingSettings.map(entry => entry.patch)).appTheme;
     document.documentElement.dataset.theme = theme === 'dark' || theme === 'light' ? theme : 'system';
-  },[data.settings.appTheme]);
+  },[data.settings, pendingSettings]);
   useEffect(()=>{
     if (!reader) frame.current?.scrollTo({top:0});
     if (route.section === 'books' && !route.bookId && focusSearch.current && !reader) {
@@ -170,13 +201,14 @@ export function App() {
   const liveBooks = data.books.filter(book=>!book.ignored && !book.missing).length;
   const book = route.bookId ? data.books.find(entry=>entry.id === route.bookId) : undefined;
   const viewProps = {data,act,notice,openBook,read};
+  const settings = Object.assign({}, data.settings, ...pendingSettings.map(entry => entry.patch));
   const estimate = reader ? summarizeBook(data, reader.book.id).estimateSeconds : undefined;
   const accent = typeof data.settings.accent === 'string' && /^#[0-9a-f]{6}$/i.test(data.settings.accent)
     ? {'--accent':data.settings.accent,'--accent-text':data.settings.accent} as CSSProperties : undefined;
   return <div className="app-root" style={accent}>
-    {reader ? <Reader key={reader.book.id} {...reader} settings={data.settings} estimateSeconds={estimate}
+    {reader ? <Reader key={reader.book.id} {...reader} settings={settings} estimateSeconds={estimate}
       annotations={data.annotations.filter(note=>note.bookId === reader.book.id)} close={closeReader}
-      updateSettings={patch=>act('settingsPatch',{patch})} refresh={refresh} notice={notice}/> :
+      updateSettings={saveSettings} refresh={refresh} notice={notice}/> :
       <div className="desktop-shell">
         <aside className="sidebar">
           <button className="sidebar-brand" onClick={()=>go('books')} aria-label="Deft home"><span className="brand-icon"><Mark size={36}/></span><span>deft</span></button>
@@ -210,11 +242,11 @@ export function App() {
               route.section === 'authors' ? <Authors {...viewProps} authorId={route.id} openAuthor={id=>go('authors',id)}/> :
               route.section === 'notes' ? <Notes {...viewProps} bookId={route.id} setBookId={id=>go('notes',id)}/> :
               route.section === 'stats' ? <Stats data={data} refresh={refresh} notice={notice} openSettings={()=>go('settings',undefined,'goals')}/> :
-              <Settings key={route.settingsSection ?? 'settings'} data={data} refresh={refresh} notice={notice} initialSection={route.settingsSection as never}/>}
+              <Settings key={route.settingsSection ?? 'settings'} data={{ ...data, settings }} refresh={refresh} notice={notice} saveSettings={saveSettings} initialSection={route.settingsSection as never}/>}
           </main>
         </div>
       </div>}
-    {!!toast && <div className="toast" role="status"><span>{toast}</span><button className="icon-button" aria-label="dismiss notification" onClick={()=>setToast('')}><X size={16}/></button></div>}
+    {!!toast && <div className="toast" role="status" ref={toastElement} popover={typeof HTMLElement.prototype.showPopover === 'function' ? 'manual' : undefined}><span>{toast}</span><button className="icon-button" aria-label="dismiss notification" onClick={()=>setToast('')}><X size={16}/></button></div>}
     {dialog?.type === 'protected' && <Modal title="this file is protected." close={closeDialog}><p>This file is locked with DRM. You can still rate it, categorize it, and match an edition.</p><div className="dialog-actions"><button className="button primary" onClick={closeDialog}>ok</button></div></Modal>}
     {dialog?.type === 'missing' && <Modal title="file missing." close={closeDialog}><p>Deft can't find this file anymore. Its history is safe.</p><div className="dialog-actions"><button className="button primary" onClick={closeDialog}>ok</button></div></Modal>}
     {dialog?.type === 'read' && <Modal title={dialog.book.state === 'finished' ? "you've finished this." : 'you set this one down.'} close={closeDialog}>

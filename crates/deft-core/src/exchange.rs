@@ -98,6 +98,9 @@ pub fn unmatched_count(state: &Value) -> usize {
 }
 
 fn book_state(book: &Value, history: &[&Value]) -> &'static str {
+    if book.get("markedUnread").and_then(Value::as_bool) == Some(true) {
+        return "not_started";
+    }
     // State is derived from the latest read-through. The vector preserves insertion
     // order so editing historical dates cannot make an earlier attempt current.
     let raw_state = history

@@ -62,6 +62,7 @@ model!(Book {
     pub ignored: bool,
     pub missing: bool,
     pub state: BookState,
+    pub marked_unread: bool,
     pub favorite: bool,
     pub rating: Option<f64>,
     pub review: String,
@@ -136,6 +137,7 @@ model!(Category {
     pub rating: Option<f64>,
     pub cover: Option<String>,
     pub order_mode: String,
+    pub sort_reversed: bool,
     pub auto_created: bool,
     pub parent_id: Option<String>,
     pub created_at: i64,
@@ -305,6 +307,10 @@ impl State {
 
     pub fn sync_book_state(&mut self, book_id: &str) {
         if let Some(book) = self.books.iter_mut().find(|book| book.id == book_id) {
+            if book.marked_unread {
+                book.state = BookState::NotRead;
+                return;
+            }
             book.state = self
                 .read_throughs
                 .iter()

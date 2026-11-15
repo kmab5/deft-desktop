@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDownWideNarrow, ArrowRight, BookOpen, Check, FolderPlus, Grid2X2, Heart, List, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
+import { ArrowDown, ArrowDownWideNarrow, ArrowRight, ArrowUp, BookOpen, Check, FolderPlus, Grid2X2, Heart, List, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { formats, stateName, type Book, type BookState, type Snapshot } from './types';
 import { Cover, Empty, Modal, Progress, StatePill, percent } from './ui';
 
@@ -24,6 +24,7 @@ export function Books({ data, openBook, read, addFolder, rescan, scanning, bulk,
     query:string; setQuery:(q:string)=>void }) {
   const [filters, setFilters] = useState(defaults);
   const [sort, setSort] = useState<Sort>(() => (localStorage.getItem('deft-book-sort') as Sort) || 'recent');
+  const [reverse, setReverse] = useState(() => localStorage.getItem('deft-book-sort-reverse') === 'true');
   const [view, setView] = useState(() => localStorage.getItem('deft-book-view') || 'grid');
   const [filterOpen, setFilterOpen] = useState(false);
   const [selecting, setSelecting] = useState(false);
@@ -44,7 +45,7 @@ export function Books({ data, openBook, read, addFolder, rescan, scanning, bulk,
       && (!filters.matched || Boolean(book.edition)) && (!filters.rating || (book.rating ?? 0) >= Number(filters.rating))
       && (!members || members.has(book.id))
       && (!search || [book.title, ...book.authors, book.series ?? ''].some(value => value.toLocaleLowerCase().includes(search))));
-    return matching.sort((a, b) => {
+    matching.sort((a, b) => {
       const title = () => collator.compare(a.title, b.title);
       switch (sort) {
         case 'title': return title();
@@ -55,8 +56,9 @@ export function Books({ data, openBook, read, addFolder, rescan, scanning, bulk,
         default: return (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0) || title();
       }
     });
-  }, [data.books, data.categories, filters, query, sort]);
-  useEffect(() => setPage(1), [filters, query, sort, view]);
+    return reverse ? matching.reverse() : matching;
+  }, [data.books, data.categories, filters, query, sort, reverse]);
+  useEffect(() => setPage(1), [filters, query, sort, reverse, view]);
   const toggle = (id: string) => setSelected(previous => {
     const next = new Set(previous);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -89,9 +91,15 @@ export function Books({ data, openBook, read, addFolder, rescan, scanning, bulk,
         placeholder="search titles, authors, series" value={query} onChange={event => setQuery(event.target.value)}/></label>
       <div className="row toolbar-actions">
         <button className={`button ${filterCount ? 'is-active' : ''}`} onClick={() => setFilterOpen(true)}><SlidersHorizontal size={15}/>filter{filterCount ? <span className="tiny-count">{filterCount}</span> : null}</button>
-        <label className="sort-select"><ArrowDownWideNarrow size={16}/><select aria-label="sort books" value={sort} onChange={event => {
+        <div className="sort-control"><label className="sort-select"><ArrowDownWideNarrow size={16}/><select aria-label="sort books" value={sort} onChange={event => {
           const value = event.target.value as Sort; setSort(value); localStorage.setItem('deft-book-sort', value);
         }}>{Object.entries(sorts).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+          <button className="icon-button sort-direction" type="button" aria-label="reverse sort order" aria-pressed={reverse}
+            title={reverse ? 'restore default sort order' : 'reverse sort order'} onClick={() => {
+              setReverse(!reverse);
+              localStorage.setItem('deft-book-sort-reverse', String(!reverse));
+            }}>{reverse ? <ArrowUp size={17}/> : <ArrowDown size={17}/>}</button>
+        </div>
         <div className="switcher" aria-label="library layout">
           <button className="icon-button" aria-label="grid view" aria-pressed={view === 'grid'} onClick={() => {setView('grid');localStorage.setItem('deft-book-view','grid');}}><Grid2X2 size={17}/></button>
           <button className="icon-button" aria-label="list view" aria-pressed={view === 'list'} onClick={() => {setView('list');localStorage.setItem('deft-book-view','list');}}><List size={18}/></button>
