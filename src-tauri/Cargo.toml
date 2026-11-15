@@ -1,0 +1,24 @@
+[package]
+name = "deft-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Local ebook reader and reading tracker"
+
+[build-dependencies]
+tauri-build = "2"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+chrono = "0.4"
+deft-core = { path = "../crates/deft-core" }
+dunce = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tempfile = "3"

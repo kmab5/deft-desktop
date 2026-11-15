@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Deft Reading Profile v1",
+  "type": "object",
+  "required": ["schemaVersion", "appVersion", "exportedAt", "books", "authors", "categories", "stats"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "appVersion": { "type": "string" },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "books": { "type": "array", "items": { "$ref": "#/$defs/book" } },
+    "authors": { "type": "array", "items": { "$ref": "#/$defs/author" } },
+    "categories": { "type": "array", "items": { "$ref": "#/$defs/category" } },
+    "stats": { "$ref": "#/$defs/stats" }
+  },
+  "$defs": {
+    "stringList": { "type": "array", "items": { "type": "string" } },
+    "date": { "type": ["string", "null"], "format": "date-time" },
+    "nonnegative": { "type": "integer", "minimum": 0 },
+    "rating": { "type": ["number", "null"], "minimum": 0.5, "maximum": 5 },
+    "book": {
+      "type": "object",
+      "required": ["id", "title", "authors", "edition", "format", "state", "rating", "favorite", "readThroughs", "totalActiveSeconds"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "authors": { "$ref": "#/$defs/stringList" },
+        "edition": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/edition" }] },
+        "format": { "enum": ["epub", "mobi", "azw", "azw3", "fb2", "txt", "pdf", "djvu", "cbz"] },
+        "state": { "enum": ["not_started", "reading", "finished", "paused", "abandoned"] },
+        "rating": { "$ref": "#/$defs/rating", "multipleOf": 0.5 },
+        "favorite": { "type": "boolean" },
+        "readThroughs": { "type": "array", "items": { "$ref": "#/$defs/readThrough" } },
+        "totalActiveSeconds": { "$ref": "#/$defs/nonnegative" },
+        "review": { "type": "string" },
+        "notes": { "type": "array", "items": { "$ref": "#/$defs/note" } }
+      }
+    },
+    "edition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string" },
+        "isbn10": { "type": "string", "pattern": "^[0-9]{9}[0-9X]$" },
+        "isbn13": { "type": "string", "pattern": "^[0-9]{13}$" },
+        "workId": { "type": "string" },
+        "editionId": { "type": "string" },
+        "openLibraryWorkId": { "type": "string" },
+        "openLibraryEditionId": { "type": "string" },
+        "googleBooksId": { "type": "string" },
+        "hardcoverId": { "type": ["string", "integer"] },
+        "goodreadsId": { "type": ["string", "integer"] },
+        "title": { "type": "string" },
+        "authors": { "$ref": "#/$defs/stringList" },
+        "year": { "type": "integer" },
+        "publishedYear": { "type": "integer" },
+        "pages": { "$ref": "#/$defs/nonnegative" }
+      }
+    },
+    "readThrough": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "startedAt", "endedAt", "outcome"],
+      "properties": {
+        "id": { "type": "string" },
+        "startedAt": { "$ref": "#/$defs/date" },
+        "endedAt": { "$ref": "#/$defs/date" },
+        "outcome": { "enum": ["reading", "finished", "paused", "abandoned"] }
+      }
+    },
+    "note": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "text", "note", "color", "createdAt", "updatedAt"],
+      "properties": {
+        "type": { "enum": ["bookmark", "highlight", "page"] },
+        "text": { "type": "string" },
+        "note": { "type": "string" },
+        "color": { "type": "string" },
+        "createdAt": { "$ref": "#/$defs/date" },
+        "updatedAt": { "$ref": "#/$defs/date" }
+      }
+    },
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "bookIds", "totalActiveSeconds"],
+      "properties": {
+        "name": { "type": "string" },
+        "bookIds": { "$ref": "#/$defs/stringList" },
+        "totalActiveSeconds": { "$ref": "#/$defs/nonnegative" }
+      }
+    },
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "types", "members", "rating", "ratingOverride"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "types": { "$ref": "#/$defs/stringList" },
+        "members": { "type": "array", "items": { "$ref": "#/$defs/member" } },
+        "rating": { "$ref": "#/$defs/rating" },
+        "ratingOverride": { "$ref": "#/$defs/rating" }
+      }
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bookId", "position"],
+      "properties": {
+        "bookId": { "type": "string" },
+        "position": { "type": "number" }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["books", "finishedReadThroughs", "activeSeconds", "sessions", "pagesRead"],
+      "properties": {
+        "books": { "$ref": "#/$defs/nonnegative" },
+        "finishedReadThroughs": { "$ref": "#/$defs/nonnegative" },
+        "activeSeconds": { "$ref": "#/$defs/nonnegative" },
+        "sessions": { "$ref": "#/$defs/nonnegative" },
+        "pagesRead": { "$ref": "#/$defs/nonnegative" }
+      }
+    }
+  }
+}

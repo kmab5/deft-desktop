@@ -1,0 +1,13 @@
+/node_modules/
+/dist/
+/target/
+/src-tauri/target/
+/src-tauri/gen/
+/coverage/
+/playwright-report/
+/test-results/
+*.log
+*.pfx
+*.p12
+.DS_Store
+Thumbs.db

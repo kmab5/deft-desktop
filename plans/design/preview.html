@@ -1,0 +1,693 @@
+<title>Deft Design Preview</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;1,7..72,400&family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&family=Source+Serif+4:opsz,wght@8..60,400&family=PT+Serif&family=EB+Garamond&family=Crimson+Pro&family=Bitter&family=Lato&family=Open+Sans&family=Inter&family=Atkinson+Hyperlegible&display=swap">
+<style>
+/* layout: a spec sheet in kmab ink; sections stacked, phone mockups in a wrapping row. v2 after author feedback 2026-11-14 */
+:root{
+  --bg:#0E0E11;--surface:#17171B;--surface2:#1E1E24;--line:#2A2A31;--line2:#3A3A44;
+  --text:#EDEBE4;--muted:#9A9AA6;--dim:#66666F;
+  --accent:#C373FF;--accentText:#C373FF;--onAccent:#0E0E11;--finished:#3DE08A;--paused:#F5C451;--abandoned:#9A9AA6;
+  --scrim:rgba(14,14,17,.7);
+  --ui:'Space Grotesk',system-ui,sans-serif;--mono:'Space Mono',ui-monospace,monospace;--book:'Literata',Georgia,serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){
+  --bg:#F4F1EA;--surface:#FBF9F4;--surface2:#EDE9DF;--line:#DDD8CC;--line2:#C9C3B5;
+  --text:#17171B;--muted:#5E5E68;--dim:#8A8A93;
+  --accent:#B24BFF;--accentText:#9940DB;--onAccent:#0E0E11;--finished:#2B9D61;--paused:#AC8939;--abandoned:#5E5E68;
+  --scrim:rgba(23,23,27,.45);color-scheme:light}}
+:root[data-theme="light"]{
+  --bg:#F4F1EA;--surface:#FBF9F4;--surface2:#EDE9DF;--line:#DDD8CC;--line2:#C9C3B5;
+  --text:#17171B;--muted:#5E5E68;--dim:#8A8A93;
+  --accent:#B24BFF;--accentText:#9940DB;--onAccent:#0E0E11;--finished:#2B9D61;--paused:#AC8939;--abandoned:#5E5E68;
+  --scrim:rgba(23,23,27,.45);color-scheme:light}
+.ink{--bg:#0E0E11;--surface:#17171B;--surface2:#1E1E24;--line:#2A2A31;--line2:#3A3A44;--text:#EDEBE4;--muted:#9A9AA6;--dim:#66666F;--accent:#C373FF;--accentText:#C373FF;--onAccent:#0E0E11;--finished:#3DE08A;--paused:#F5C451;--abandoned:#9A9AA6;--scrim:rgba(14,14,17,.7)}
+.paper{--bg:#F4F1EA;--surface:#FBF9F4;--surface2:#EDE9DF;--line:#DDD8CC;--line2:#C9C3B5;--text:#17171B;--muted:#5E5E68;--dim:#8A8A93;--accent:#B24BFF;--accentText:#9940DB;--onAccent:#0E0E11;--finished:#2B9D61;--paused:#AC8939;--abandoned:#5E5E68;--scrim:rgba(23,23,27,.45)}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:var(--ui);font-size:14px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+.wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{margin:0;font-weight:600;text-wrap:balance}
+h1{font-size:40px;line-height:1.1;letter-spacing:-.02em}
+h2{font-size:20px;letter-spacing:-.01em}
+h3{font-size:15px}
+p{margin:0;max-width:65ch}
+.eyebrow{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.04em}
+.muted{color:var(--muted)}
+.mono{font-family:var(--mono)}
+section{display:flex;flex-direction:column;gap:20px}
+.sechead{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:20px}
+.row{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:20px;min-width:0}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.lede{color:var(--muted);font-size:16px}
+.changes{font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+
+/* marks */
+.marks{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.mark{display:flex;flex-direction:column;gap:14px}
+.tiles{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+.tile{width:112px;height:112px;border-radius:26px;background:#0E0E11;display:grid;place-items:center;flex:none;border:1px solid #2A2A31}
+.tile.light{background:#F4F1EA;border-color:#DDD8CC}
+.tile.sm{width:56px;height:56px;border-radius:14px}
+.tile.xs{width:36px;height:36px;border-radius:9px}
+.tile svg{width:100%;height:100%}
+
+/* swatches */
+.swatches{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.sw{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.sw i{display:block;height:52px}
+.sw div{padding:8px 10px;display:flex;flex-direction:column}
+.sw b{font-weight:500;font-size:13px}
+.sw span{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+
+.spec{display:grid;grid-template-columns:150px 1fr;gap:12px 20px;align-items:baseline}
+@media (max-width:560px){.spec{grid-template-columns:1fr}}
+
+/* components */
+.chip{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 11px;border-radius:4px;background:var(--surface2);font-family:var(--mono);font-size:11px;border:1px solid transparent;transition:border-color .15s cubic-bezier(.2,0,0,1),color .15s}
+.chip .dot{width:6px;height:6px;background:var(--c,var(--line2))}
+.chip.sel{border-color:var(--c,var(--accent))}
+.chip.filter.sel{border-color:var(--accent);color:var(--accentText)}
+.btn{height:42px;padding:0 16px;border-radius:4px;border:1px solid var(--line2);background:transparent;font-weight:500;font-size:13px}
+.btn.primary{background:var(--accent);color:var(--onAccent);border-color:var(--accent)}
+.btn.text{border:0;color:var(--accentText);padding:0 8px}
+.seg{height:6px;border-radius:2px;background:var(--surface2);display:flex;overflow:hidden;gap:2px}
+.seg i{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.legend span::before{content:"";display:inline-block;width:6px;height:6px;margin-right:6px;background:var(--c);vertical-align:1px}
+.stars{display:flex;align-items:center;gap:4px}
+.stars svg{width:20px;height:20px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.stat .v{font-family:var(--mono);font-weight:700;font-size:24px;line-height:1.15;font-variant-numeric:tabular-nums}
+.stat .d{font-family:var(--mono);font-size:10.5px}
+.pb{background:var(--accent);color:var(--onAccent);font-family:var(--mono);font-size:11px;height:30px;display:flex;align-items:center;padding:0 12px;border-radius:2px}
+
+/* covers */
+.cov{display:flex;flex-direction:column;gap:6px;min-width:0}
+.art{aspect-ratio:2/3;border-radius:2px;border:1px solid var(--line);position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:9px;color:#F4F1EA}
+.art .t{font-family:var(--ui);font-weight:600;font-size:12px;line-height:1.15}
+.art .a{font-family:var(--mono);font-size:8.5px;opacity:.8}
+.art.img .t,.art.img .a{display:none}
+.badge{position:absolute;top:6px;left:6px;background:rgba(14,14,17,.82);color:#EDEBE4;font-family:var(--mono);font-size:8.5px;padding:2px 5px;border-radius:4px;display:flex;gap:4px;align-items:center}
+.sbar{height:2px;background:var(--line);position:relative}
+.sbar i{position:absolute;inset:0 auto 0 0;background:var(--c)}
+.cov .ct{font-weight:500;font-size:12px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cov .ca{font-family:var(--mono);font-size:9.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-4px}
+
+/* phones */
+.phones{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+.ph{display:flex;flex-direction:column;gap:8px;flex:none;max-width:100%}
+.phone{width:320px;max-width:100%;height:660px;border-radius:28px;border:1px solid var(--line2);background:var(--bg);color:var(--text);overflow:hidden;position:relative;display:flex;flex-direction:column;font-family:var(--ui);font-size:13px}
+.scr{flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative;min-height:0}
+.sb{height:28px;display:flex;justify-content:space-between;align-items:center;padding:0 20px;font-family:var(--mono);font-size:10px;color:var(--muted);flex:none}
+.tb{height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;flex:none;gap:12px}
+.tb h4{margin:0;font-size:18px;font-weight:600;display:flex;align-items:baseline;gap:8px}
+.tb h4 small{font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:400}
+.ic{display:flex;gap:18px;color:var(--muted);align-items:center}
+.ic svg{width:20px;height:20px}
+svg.i{fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:square;stroke-linejoin:miter}
+.pad{padding:0 20px}
+.cont{margin:4px 20px 18px;display:flex;gap:14px;align-items:center}
+.cont .art{width:40px;flex:none;padding:3px}
+.cont .art .t{font-size:6px}.cont .art .a{display:none}
+.ctrl{display:flex;justify-content:space-between;align-items:center;padding:0 20px 14px;flex:none}
+.drop{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--text);background:none;border:0;padding:6px 0}
+.drop svg{width:14px;height:14px;color:var(--muted)}
+.drop .n{background:var(--accent);color:var(--onAccent);font-size:9px;padding:0 5px;border-radius:2px}
+.pg{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 16px;padding:0 20px;overflow:hidden}
+.nav{height:64px;border-top:1px solid var(--line);background:var(--surface);display:grid;grid-template-columns:repeat(5,1fr);position:relative;flex:none}
+.nav button{background:none;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted);font-family:var(--mono);font-size:9px;padding:0}
+.nav button.on{color:var(--accentText)}
+.nav svg{width:22px;height:22px}
+.nav .ind{position:absolute;top:-1px;left:0;height:2px;width:20%;background:var(--accent);transition:transform .25s cubic-bezier(.2,0,0,1)}
+
+/* sheet */
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);border-radius:8px 8px 0 0;padding:10px 20px 20px;display:flex;flex-direction:column;gap:14px;z-index:3}
+.sheet .handle{width:32px;height:4px;background:var(--line2);border-radius:2px;align-self:center}
+.sheet h5{margin:0;font-size:15px;font-weight:600}
+.sgroup{display:flex;flex-direction:column;gap:8px}
+.sgroup .chips{display:flex;flex-wrap:wrap;gap:6px}
+.sgroup .chip{height:28px}
+.tog{display:flex;justify-content:space-between;align-items:center;font-size:12.5px}
+.sw2{width:34px;height:20px;border-radius:4px;background:var(--line2);position:relative;transition:background .15s}
+.sw2::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:2px;background:var(--bg);transition:transform .15s cubic-bezier(.2,0,0,1)}
+.sw2.on{background:var(--accent)}.sw2.on::after{transform:translateX(14px)}
+.dim{position:absolute;inset:0;background:var(--scrim);z-index:2}
+
+/* list + selection */
+.lrow{display:flex;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line)}
+.lrow .art{width:42px;flex:none;padding:3px}
+.lrow .art .t{font-size:6px}.lrow .art .a{display:none}
+.lrow .meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.lrow .meta b{font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .meta span{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.lrow.sel{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.check{width:18px;height:18px;border:1.5px solid var(--line2);border-radius:3px;flex:none;display:grid;place-items:center}
+.lrow.sel .check{background:var(--accent);border-color:var(--accent)}
+.selbar{position:absolute;left:12px;right:12px;bottom:12px;background:var(--surface2);border:1px solid var(--line2);border-radius:8px;display:flex;justify-content:space-around;padding:10px 0;font-family:var(--mono);font-size:10px;z-index:2}
+.selbar span{display:flex;flex-direction:column;align-items:center;gap:4px}
+.selbar svg{width:18px;height:18px}
+
+/* book page */
+.bp-hero{display:flex;gap:16px;padding:4px 20px 18px;align-items:flex-end}
+.bp-hero .art{width:100px;flex:none}
+.bp-title{font-size:19px;font-weight:600;line-height:1.2}
+.segctl{display:grid;grid-template-columns:repeat(4,1fr);margin:0 20px 16px;border:1px solid var(--line2);border-radius:4px;overflow:hidden}
+.segctl button{background:none;border:0;border-right:1px solid var(--line2);height:32px;font-family:var(--mono);font-size:10px;color:var(--muted);transition:background .15s,color .15s,box-shadow .15s}
+.segctl button:last-child{border-right:0}
+.segctl button.on{background:var(--surface2);color:var(--text);box-shadow:inset 0 -2px 0 var(--c)}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 20px 14px}
+.kv .stat{padding:9px}
+.kv .stat .v{font-size:15px}
+.list{padding:0 20px;display:flex;flex-direction:column}
+.li{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding:11px 0;font-size:12.5px;gap:10px}
+.heat{display:grid;grid-template-rows:repeat(7,10px);grid-auto-flow:column;grid-auto-columns:10px;gap:3px;padding:0 20px}
+.heat i{border-radius:1px;background:var(--surface2)}
+
+/* reader */
+.reader{transition:background .25s cubic-bezier(.2,0,0,1),color .25s}
+.reader .page{flex:1;padding:22px 26px 10px;font-size:15px;line-height:1.65;overflow:hidden;text-align:justify;hyphens:auto;transition:font-size .2s,line-height .2s}
+.reader .page p{margin:0 0 .8em;text-indent:1.4em}
+.reader .page h5{font-family:inherit;font-size:12px;letter-spacing:.06em;margin:0 0 14px;text-align:center;font-weight:400;opacity:.7}
+.rbar{position:absolute;left:0;right:0;background:var(--rs);color:var(--rt);transition:opacity .25s cubic-bezier(.2,0,0,1),transform .25s cubic-bezier(.2,0,0,1);z-index:2}
+.rtop{top:0;border-bottom:1px solid var(--rl);height:84px;padding:28px 16px 0;display:flex;align-items:center;justify-content:space-between;font-size:12.5px;gap:10px}
+.rtop .ttl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rtop .ic{color:inherit;gap:16px}
+.rtop button{background:none;border:0;padding:0;display:grid;place-items:center;color:inherit}
+.rtop button.on{color:var(--ra)}
+.rbot{bottom:0;border-top:1px solid var(--rl);padding:16px 18px 18px;display:flex;flex-direction:column;gap:10px}
+.reader.hide .rtop{opacity:0;transform:translateY(-8px);pointer-events:none}
+.reader.hide .rbot{opacity:0;transform:translateY(8px);pointer-events:none}
+.slider{height:2px;background:var(--rl);position:relative}
+.slider i{position:absolute;inset:0 auto 0 0;width:43%;background:var(--ra)}
+.slider b{position:absolute;top:-5px;left:43%;width:12px;height:12px;margin-left:-6px;background:var(--ra);border-radius:2px}
+.slider u{position:absolute;top:-3px;width:1px;height:8px;background:var(--rl)}
+.rmeta{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;opacity:.75}
+.rstatus{font-family:var(--mono);font-size:9.5px;opacity:.55;display:flex;justify-content:space-between;padding:0 26px 10px}
+.rset{position:absolute;left:0;right:0;bottom:0;background:var(--rs);color:var(--rt);border-top:1px solid var(--rl);border-radius:8px 8px 0 0;padding:10px 18px 18px;display:flex;flex-direction:column;gap:14px;z-index:3;transform:translateY(105%);transition:transform .25s cubic-bezier(.05,.7,.1,1)}
+.reader.set .rset{transform:none}
+.rset .handle{width:32px;height:4px;background:var(--rl);border-radius:2px;align-self:center}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--rl);position:relative}
+.tabs button{background:none;border:0;font-family:var(--mono);font-size:11px;padding:8px 0;color:inherit;opacity:.6}
+.tabs button.on{opacity:1}
+.tabs .tind{position:absolute;bottom:-1px;left:0;width:33.33%;height:2px;background:var(--ra);transition:transform .25s cubic-bezier(.2,0,0,1)}
+.tabp{display:none;flex-direction:column;gap:12px;font-size:12px}
+.tabp.on{display:flex}
+.fonts{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
+.fonts button{flex:none;height:30px;padding:0 10px;border:1px solid var(--rl);border-radius:4px;background:none;color:inherit;font-size:13px}
+.fonts button.on{border-color:var(--ra);color:var(--ra)}
+.step{display:flex;justify-content:space-between;align-items:center}
+.step .ctl{display:flex;align-items:center;gap:12px;font-family:var(--mono);font-size:11px}
+.step .ctl button{width:30px;height:30px;border:1px solid var(--rl);border-radius:4px;background:none;color:inherit;font-family:var(--mono)}
+.opts{display:flex;gap:6px}
+.opts button{height:28px;padding:0 10px;border:1px solid var(--rl);border-radius:4px;background:none;color:inherit;font-family:var(--mono);font-size:10.5px}
+.opts button.on{border-color:var(--ra);color:var(--ra)}
+.thsw{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.thsw button{height:46px;border-radius:4px;border:1px solid var(--rl);font-family:var(--mono);font-size:10px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:5px}
+.thsw button.on{outline:2px solid var(--ra);outline-offset:1px}
+.bright{display:flex;align-items:center;gap:10px}
+.bright .slider{flex:1}
+
+/* celebration v2: full screen, auto terminates */
+.cel{position:absolute;inset:0;z-index:5;pointer-events:none;overflow:hidden}
+.cel.run{pointer-events:auto}
+.cel canvas{position:absolute;inset:0;width:100%;height:100%}
+.cel .stage{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+.cel .ccov{width:126px;opacity:0}
+.cel .ccov .art{box-shadow:0 22px 50px rgba(0,0,0,.4)}
+.cel .word{font-family:var(--ui);font-size:52px;font-weight:600;letter-spacing:-.03em;color:#0E0E11;opacity:0;line-height:1}
+.cel .nums{font-family:var(--mono);font-size:13px;color:#0E0E11;opacity:0;font-variant-numeric:tabular-nums;display:flex;gap:14px}
+.cel .nums b{font-size:20px;display:block}
+.cel .pbs{position:absolute;left:0;right:0;bottom:96px}
+.cel .pbs .pb{border-radius:0;transform:translateX(-102%);background:#0E0E11;color:#C373FF;height:36px;font-size:12px;justify-content:center}
+.fsheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);border-radius:8px 8px 0 0;padding:10px 20px 20px;display:flex;flex-direction:column;gap:12px;z-index:4;transform:translateY(105%);transition:transform .3s cubic-bezier(.05,.7,.1,1)}
+.fsheet.on{transform:none}
+.replay{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.rthemes{display:flex;flex-wrap:wrap;gap:8px}
+.rthemes button{height:30px;padding:0 12px;border-radius:4px;border:1px solid var(--line2);background:var(--surface);font-family:var(--mono);font-size:11px;color:var(--text)}
+.rthemes button.on{border-color:var(--accent);color:var(--accentText)}
+
+.notes{display:flex;flex-direction:column;gap:10px}
+.note{border-left:3px solid var(--c);padding:2px 0 2px 10px;display:flex;flex-direction:column;gap:2px}
+.note q{font-family:var(--book);font-style:italic;font-size:13px;quotes:none;display:block}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:14px">
+  <span class="eyebrow">deft · visual design · living preview · v2 · 2026-11-14</span>
+  <h1>read like you mean it.</h1>
+  <p class="lede">The reference for Deft's look. Written spec: <span class="mono">plans/2026-11-13-deft-visual-design.md</span>; where they disagree, the spec wins.</p>
+  <div class="changes"><span>v3: final mark (off-white book, purple ribbon, thinner strokes). v2 changes: mark (b) reworked · lighter purple accent · app type is sans only · reader gets lato, open sans, pt serif, bitter and the book's own font · calmer books screen + filter sheet + list/selection · reader settings behind one button · new full-screen finish that ends by itself · smaller type</span></div>
+</header>
+
+<section>
+  <div class="sechead"><span class="eyebrow">01 · the mark</span><h2>closed book, ribbon on top</h2>
+  <p class="muted">Final: off-white strokes on ink, purple ribbon. Stroke 11 on a 128 grid, softened corners, a little taller than wide (1 : 1.2), optically centred. Shown on paper and at app-icon sizes.</p></div>
+  <div class="marks" id="marks"></div>
+</section>
+
+<section>
+  <div class="sechead"><span class="eyebrow">02 · colour</span><h2>colour means something</h2>
+  <p class="muted">The accent is one step lighter now: purple-400 on ink. On paper, fills use purple-500 with ink text; purple text uses 600 so it stays legible.</p></div>
+  <div class="swatches">
+    <div class="sw"><i style="background:var(--accent)"></i><div><b>reading · accent</b><span>#C373FF · #B24BFF</span></div></div>
+    <div class="sw"><i style="background:var(--finished)"></i><div><b>finished</b><span>#3DE08A · #2B9D61</span></div></div>
+    <div class="sw"><i style="background:var(--paused)"></i><div><b>paused</b><span>#F5C451 · #AC8939</span></div></div>
+    <div class="sw"><i style="background:var(--abandoned)"></i><div><b>abandoned</b><span>#9A9AA6 · #5E5E68</span></div></div>
+    <div class="sw"><i style="background:var(--bg);box-shadow:inset 0 0 0 2px var(--line2)"></i><div><b>not read</b><span>outline only</span></div></div>
+  </div>
+  <div class="swatches">
+    <div class="sw"><i style="background:var(--bg)"></i><div><b>bg</b><span>#0E0E11 · #F4F1EA</span></div></div>
+    <div class="sw"><i style="background:var(--surface)"></i><div><b>surface</b><span>#17171B · #FBF9F4</span></div></div>
+    <div class="sw"><i style="background:var(--surface2)"></i><div><b>surface2</b><span>#1E1E24 · #EDE9DF</span></div></div>
+    <div class="sw"><i style="background:var(--line2)"></i><div><b>line2</b><span>#3A3A44 · #C9C3B5</span></div></div>
+    <div class="sw"><i style="background:var(--text)"></i><div><b>text</b><span>#EDEBE4 · #17171B</span></div></div>
+    <div class="sw"><i style="background:var(--muted)"></i><div><b>muted</b><span>#9A9AA6 · #5E5E68</span></div></div>
+  </div>
+</section>
+
+<section>
+  <div class="sechead"><span class="eyebrow">03 · type</span><h2>sans for the app, any font for the book</h2>
+  <p class="muted">The app speaks Space Grotesk, with Space Mono for numbers. Serifs live in the reader.</p></div>
+  <div class="card spec">
+    <span class="eyebrow">celebrate · grotesk 52</span><span style="font-size:52px;font-weight:600;letter-spacing:-.03em;line-height:1">finished.</span>
+    <span class="eyebrow">headline · grotesk 22</span><span style="font-size:22px;font-weight:600">The Left Hand of Darkness</span>
+    <span class="eyebrow">title · grotesk 17</span><span style="font-size:17px;font-weight:600">read-throughs</span>
+    <span class="eyebrow">body · grotesk 14</span><span>Point Deft at a folder and it will find them.</span>
+    <span class="eyebrow">cover title · grotesk 12</span><span style="font-size:12px;font-weight:500">The Well of Ascension</span>
+    <span class="eyebrow">stat · mono 24</span><span class="mono" style="font-size:24px;font-weight:700">14h 22m</span>
+    <span class="eyebrow">mono · 11</span><span class="mono" style="font-size:11px">43% · 2h 10m left</span>
+  </div>
+  <h3>reader fonts</h3>
+  <div class="grid" id="fontgrid"></div>
+</section>
+
+<section>
+  <div class="sechead"><span class="eyebrow">04 · components</span><h2>tight corners, flat surfaces</h2></div>
+  <div class="card" style="display:flex;flex-direction:column;gap:18px">
+    <div class="row">
+      <span class="chip sel" style="--c:var(--accent)"><i class="dot"></i>reading</span>
+      <span class="chip" style="--c:var(--finished)"><i class="dot"></i>finished</span>
+      <span class="chip" style="--c:var(--paused)"><i class="dot"></i>paused</span>
+      <span class="chip" style="--c:var(--abandoned)"><i class="dot"></i>abandoned</span>
+      <span class="chip"><i class="dot" style="background:transparent;box-shadow:inset 0 0 0 1px var(--line2)"></i>not read</span>
+      <span class="chip filter sel">epub</span><span class="chip filter">pdf</span>
+    </div>
+    <div class="row"><button class="btn primary">continue</button><button class="btn">mark as finished</button><button class="btn text">rescan</button></div>
+    <div style="display:flex;flex-direction:column;gap:8px;max-width:420px">
+      <span class="eyebrow">series progress · abandoned stays unresolved</span>
+      <div class="seg"><i style="width:55%;background:var(--finished)"></i><i style="width:14%;background:var(--accent)"></i><i style="width:8%;background:var(--abandoned)"></i></div>
+      <div class="legend"><span style="--c:var(--finished)">5 finished</span><span style="--c:var(--accent)">1 reading</span><span style="--c:var(--abandoned)">1 abandoned</span><span style="--c:var(--line2)">2 not read</span></div>
+    </div>
+    <div class="row">
+      <div class="stars" id="stars" aria-label="rating 4.5 of 5"></div><span class="mono">4.5</span>
+      <svg class="i" viewBox="0 0 24 24" width="22" height="22" style="color:var(--accent);fill:var(--accent)"><path d="M12 20 L4 12 A4.5 4.5 0 0 1 12 6 A4.5 4.5 0 0 1 20 12 Z"/></svg>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
+      <div class="stat"><span class="eyebrow">time read · month</span><span class="v">31h 04m</span><span class="d" style="color:var(--finished)">+4h 12m</span></div>
+      <div class="stat"><span class="eyebrow">books finished</span><span class="v">6</span><span class="d muted">−1</span></div>
+      <div class="stat"><span class="eyebrow">streak</span><span class="v" style="color:var(--accentText)">23d</span><span class="d" style="color:var(--accentText)">personal best</span></div>
+    </div>
+  </div>
+  <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(110px,1fr))" id="covergrid"></div>
+</section>
+
+<section>
+  <div class="sechead"><span class="eyebrow">05 · screens</span><h2>key screens</h2>
+  <p class="muted">Everything is clickable: the nav bar, the filter and sort buttons, the book state, the reader (tap the page; the sliders icon opens settings), and finish.</p></div>
+  <div class="rthemes" role="group" aria-label="app theme for mockups"><button id="t-ink" class="on">ink</button><button id="t-paper">paper</button></div>
+  <div class="phones">
+
+    <div class="ph"><span class="eyebrow">books · grid</span>
+    <div class="phone app ink" id="booksph">
+      <div class="sb"><span>9:41</span><span>82%</span></div>
+      <div class="scr">
+        <div class="tb"><h4>books <small>248</small></h4><div class="ic">
+          <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M16 16 L20 20"/></svg>
+          <svg class="i" viewBox="0 0 24 24"><path d="M12 6 V6.5 M12 12 V12.5 M12 18 V18.5"/></svg></div></div>
+        <div class="cont">
+          <div class="art" style="background:#3B2A55"><span class="t">The Well of Ascension</span></div>
+          <div style="display:flex;flex-direction:column;gap:4px;min-width:0;flex:1">
+            <span class="eyebrow">continue</span>
+            <span style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The Well of Ascension</span>
+            <div class="sbar" style="--c:var(--accent)"><i style="width:43%"></i></div>
+            <span class="mono" style="font-size:10px;color:var(--muted)">43% · 2h 10m left</span>
+          </div>
+        </div>
+        <div class="ctrl">
+          <button class="drop" data-open="filter"><svg class="i" viewBox="0 0 24 24"><path d="M4 6 H20 M7 12 H17 M10 18 H14"/></svg>all books <span class="n">1</span></button>
+          <div style="display:flex;gap:16px;align-items:center">
+            <button class="drop" data-open="filter">recent <svg class="i" viewBox="0 0 24 24"><path d="M6 9 L12 15 L18 9"/></svg></button>
+            <button class="drop" aria-label="list view" id="toList"><svg class="i" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--text)"><path d="M4 5 H10 V11 H4 Z M14 5 H20 V11 H14 Z M4 15 H10 V21 H4 Z M14 15 H20 V21 H14 Z"/></svg></button>
+          </div>
+        </div>
+        <div class="pg" id="phonegrid"></div>
+        <div class="dim" id="fdim" hidden></div>
+        <div class="sheet" id="fsheetBooks" hidden>
+          <div class="handle"></div>
+          <div style="display:flex;justify-content:space-between;align-items:center"><h5>filter &amp; sort</h5><button class="btn text" style="height:28px;font-size:12px" id="fclose">done</button></div>
+          <div class="sgroup"><span class="eyebrow">state</span><div class="chips">
+            <span class="chip" style="--c:var(--accent)"><i class="dot"></i>reading</span><span class="chip" style="--c:var(--paused)"><i class="dot"></i>paused</span><span class="chip" style="--c:var(--finished)"><i class="dot"></i>finished</span><span class="chip" style="--c:var(--abandoned)"><i class="dot"></i>abandoned</span><span class="chip"><i class="dot" style="background:transparent;box-shadow:inset 0 0 0 1px var(--line2)"></i>not read</span></div></div>
+          <div class="sgroup"><span class="eyebrow">format · category · rating</span><div class="chips"><span class="chip filter sel">epub</span><span class="chip filter">pdf</span><span class="chip filter">mobi</span><span class="chip filter">+6</span><span class="chip filter">category ▾</span><span class="chip filter">★ 4+</span><span class="chip filter">♥ favourites</span></div></div>
+          <div class="sgroup"><span class="eyebrow">sort</span><div class="chips"><span class="chip filter sel">recent</span><span class="chip filter">title</span><span class="chip filter">author</span><span class="chip filter">added</span><span class="chip filter">rating</span><span class="chip filter">progress</span></div></div>
+          <div class="tog"><span>show missing</span><span class="sw2"></span></div>
+          <div class="tog"><span>show protected</span><span class="sw2 on"></span></div>
+          <div class="tog"><span>only matched editions</span><span class="sw2"></span></div>
+        </div>
+      </div>
+      <nav class="nav"><span class="ind"></span></nav>
+    </div></div>
+
+    <div class="ph"><span class="eyebrow">books · list + selection (long-press)</span>
+    <div class="phone app ink">
+      <div class="sb"><span>9:41</span><span>82%</span></div>
+      <div class="scr">
+        <div class="tb"><h4><svg class="i" viewBox="0 0 24 24" width="20" height="20"><path d="M6 6 L18 18 M18 6 L6 18"/></svg> 2 selected</h4><div class="ic"><span class="mono" style="font-size:11px">all</span></div></div>
+        <div id="listrows"></div>
+        <div class="selbar">
+          <span><svg class="i" viewBox="0 0 24 24"><path d="M4 7 H20 M4 12 H20 M4 17 H12 M17 15 V21 M14 18 H20"/></svg>category</span>
+          <span><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M8 12 L11 15 L16 9"/></svg>state</span>
+          <span><svg class="i" viewBox="0 0 24 24"><path d="M9 15 L15 9 M10 6 L12 4 A4 4 0 0 1 20 12 L18 14 M14 18 L12 20 A4 4 0 0 1 4 12 L6 10"/></svg>match</span>
+          <span><svg class="i" viewBox="0 0 24 24"><path d="M3 12 C6 6 18 6 21 12 C18 18 6 18 3 12 Z M5 5 L19 19"/></svg>ignore</span>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="ph"><span class="eyebrow">book page</span>
+    <div class="phone app ink">
+      <div class="sb"><span>9:41</span><span>82%</span></div>
+      <div class="scr">
+        <div class="tb"><svg class="i" viewBox="0 0 24 24" width="20" height="20"><path d="M15 5 L8 12 L15 19"/></svg><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 6 V6.5 M12 12 V12.5 M12 18 V18.5"/></svg></div></div>
+        <div class="bp-hero">
+          <div class="art" style="background:#22433A"><span class="t">The Left Hand of Darkness</span><span class="a">URSULA K. LE GUIN</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px;min-width:0">
+            <span class="bp-title">The Left Hand of Darkness</span>
+            <span class="mono" style="font-size:10.5px;color:var(--muted)">Ursula K. Le Guin</span>
+            <span class="mono" style="font-size:10.5px;color:var(--muted)">hainish cycle · #4</span>
+          </div>
+        </div>
+        <div class="segctl" id="segctl"><button class="on" style="--c:var(--accent)">reading</button><button style="--c:var(--paused)">paused</button><button style="--c:var(--finished)">finished</button><button style="--c:var(--abandoned)">abandoned</button></div>
+        <div class="pad" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+          <div class="seg" id="bpseg"><i style="width:68%;background:var(--accent)"></i></div>
+          <div class="legend" style="justify-content:space-between"><span style="--c:var(--accent)" id="bplab">68% · 1h 32m left</span><span>book 4 of 9</span></div>
+        </div>
+        <div class="pad" style="display:flex;gap:10px;margin-bottom:16px"><button class="btn primary" style="flex:1">continue</button></div>
+        <div class="kv"><div class="stat"><span class="eyebrow">time</span><span class="v">6h 48m</span></div><div class="stat"><span class="eyebrow">sessions</span><span class="v">14</span></div><div class="stat"><span class="eyebrow">pages/h</span><span class="v">41</span></div></div>
+        <div class="list">
+          <div class="li"><span>read-throughs</span><span class="mono muted" style="font-size:10.5px">2 · since 2024-03-02</span></div>
+          <div class="li"><span>notes</span><span class="mono muted" style="font-size:10.5px">9 highlights</span></div>
+          <div class="li"><span>next in series</span><span>The Dispossessed</span></div>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="ph"><span class="eyebrow">stats</span>
+    <div class="phone app ink">
+      <div class="sb"><span>9:41</span><span>82%</span></div>
+      <div class="scr">
+        <div class="tb"><h4>stats</h4><button class="drop">month <svg class="i" viewBox="0 0 24 24"><path d="M6 9 L12 15 L18 9"/></svg></button></div>
+        <div class="pad" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">
+          <div class="stat"><span class="eyebrow">time read</span><span class="v" style="font-size:20px">31h 04m</span></div>
+          <div class="stat"><span class="eyebrow">finished</span><span class="v" style="font-size:20px">6</span></div>
+          <div class="stat"><span class="eyebrow">streak</span><span class="v" style="font-size:20px;color:var(--accentText)">23d</span></div>
+          <div class="stat"><span class="eyebrow">pages</span><span class="v" style="font-size:20px">1 284</span></div>
+        </div>
+        <div class="pad eyebrow" style="margin-bottom:8px">last 20 weeks</div>
+        <div class="heat" id="heat"></div>
+        <div class="pad eyebrow" style="margin:20px 0 8px">books finished · 2026</div>
+        <div class="pad"><svg viewBox="0 0 288 96" width="100%" height="96" id="bars" role="img" aria-label="books finished per month"></svg></div>
+      </div>
+    </div></div>
+
+    <div class="ph"><span class="eyebrow">reader · tap page for bars, sliders icon for settings</span>
+    <div class="phone reader" id="reader">
+      <div class="scr">
+        <div style="height:28px"></div>
+        <div class="page" id="rpage">
+          <h5>CHAPTER 7 · THE MESSAGE</h5>
+          <p>The rain had stopped an hour before dawn, and by the time she reached the archive the street was dry enough to show the old chalk marks again. Someone had counted something on the wall, five strokes at a time, and then given up.</p>
+          <p>She read them the way she read everything now: slowly, then all at once. Forty-three. A number with no unit, waiting for one.</p>
+          <p>Inside, the clerk did not look up. He turned a page, and then another, and she understood that he was not reading at all, only keeping time.</p>
+          <p>"You're early," he said. It was not a complaint.</p>
+        </div>
+        <div class="rstatus"><span>9:41</span><span>ch. 43%</span><span>82%</span></div>
+        <div class="rbar rtop">
+          <button aria-label="back"><svg class="i" viewBox="0 0 24 24" width="20" height="20"><path d="M15 5 L8 12 L15 19"/></svg></button>
+          <span class="ttl">The Message</span>
+          <span class="ic">
+            <button aria-label="contents"><svg class="i" viewBox="0 0 24 24" width="20" height="20"><path d="M5 7 H19 M5 12 H19 M5 17 H13"/></svg></button>
+            <button aria-label="search"><svg class="i" viewBox="0 0 24 24" width="20" height="20"><circle cx="11" cy="11" r="6"/><path d="M16 16 L20 20"/></svg></button>
+            <button aria-label="bookmark"><svg class="i" viewBox="0 0 24 24" width="20" height="20"><path d="M7 4 H17 V20 L12 16 L7 20 Z"/></svg></button>
+            <button aria-label="reading settings" id="rsetbtn"><svg class="i" viewBox="0 0 24 24" width="20" height="20"><path d="M4 7 H20 M4 17 H20"/><rect x="7" y="4.5" width="4" height="5" fill="currentColor" stroke="none"/><rect x="14" y="14.5" width="4" height="5" fill="currentColor" stroke="none"/></svg></button>
+          </span>
+        </div>
+        <div class="rbar rbot">
+          <div class="slider"><u style="left:12%"></u><u style="left:27%"></u><u style="left:61%"></u><u style="left:80%"></u><i></i><b></b></div>
+          <div class="rmeta"><span>ch. 7 of 22</span><span>43% · 2h 10m left</span></div>
+        </div>
+        <div class="rset" id="rset">
+          <div class="handle"></div>
+          <div class="tabs"><button class="on" data-t="0">text</button><button data-t="1">theme</button><button data-t="2">page</button><span class="tind"></span></div>
+          <div class="tabp on">
+            <div class="fonts" id="rfonts"></div>
+            <div class="step"><span>size</span><span class="ctl"><button data-s="-1">a−</button><span id="fsz">15</span><button data-s="1">a+</button></span></div>
+            <div class="step"><span>line spacing</span><span class="ctl"><button data-l="-1">−</button><span id="lh">1.65</span><button data-l="1">+</button></span></div>
+            <div class="step"><span>margins</span><span class="opts"><button>s</button><button class="on">m</button><button>l</button></span></div>
+            <div class="step"><span>alignment</span><span class="opts" id="align"><button data-a="left">left</button><button class="on" data-a="justify">justify</button></span></div>
+          </div>
+          <div class="tabp">
+            <div class="thsw" id="rthemes"></div>
+            <div class="bright"><svg class="i" viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="12" r="4"/><path d="M12 3 V5 M12 19 V21 M3 12 H5 M19 12 H21"/></svg><div class="slider"><i style="width:60%"></i><b style="left:60%"></b></div></div>
+            <div class="tog"><span>use system brightness</span><span class="sw2"></span></div>
+            <div class="tog"><span>follow system day/night</span><span class="sw2 on"></span></div>
+          </div>
+          <div class="tabp">
+            <div class="step"><span>layout</span><span class="opts"><button class="on">paged</button><button>scroll</button></span></div>
+            <div class="step"><span>page turn</span><span class="opts"><button>none</button><button class="on">slide</button></span></div>
+            <div class="tog"><span>status line</span><span class="sw2 on"></span></div>
+            <div class="tog"><span>volume keys turn pages</span><span class="sw2"></span></div>
+            <div class="tog"><span>keep screen on</span><span class="sw2 on"></span></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="ph"><span class="eyebrow">finish · full screen, ends by itself (~2.8 s)</span>
+    <div class="phone app ink" id="celphone">
+      <div class="sb"><span>9:41</span><span>82%</span></div>
+      <div class="scr">
+        <div class="tb"><svg class="i" viewBox="0 0 24 24" width="20" height="20"><path d="M15 5 L8 12 L15 19"/></svg></div>
+        <div class="bp-hero"><div class="art" style="background:#4A2F1F"><span class="t">Middlemarch</span><span class="a">GEORGE ELIOT</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px"><span class="bp-title">Middlemarch</span><span class="mono" style="font-size:10.5px;color:var(--muted)">George Eliot</span></div></div>
+        <div class="pad muted" style="font-size:12.5px">Press “finish” below. Tap during the animation to skip.</div>
+        <div class="cel" id="cel">
+          <canvas id="burst"></canvas>
+          <div class="stage">
+            <div class="ccov"><div class="art" style="background:#4A2F1F"><span class="t">Middlemarch</span><span class="a">GEORGE ELIOT</span></div></div>
+            <div class="word">finished.</div>
+            <div class="nums"><span><b id="ntime">0h 00m</b>read</span><span><b id="nsess">0</b>sessions</span><span><b id="ndays">0</b>days</span></div>
+          </div>
+          <div class="pbs"><div class="pb">personal best · longest book</div></div>
+        </div>
+        <div class="fsheet" id="fsheet">
+          <div class="handle" style="width:32px;height:4px;background:var(--line2);border-radius:2px;align-self:center"></div>
+          <span style="font-size:15px;font-weight:600">how was it?</span>
+          <div class="row"><div class="stars" id="stars2"></div><svg class="i" viewBox="0 0 24 24" width="22" height="22" style="color:var(--muted)"><path d="M12 20 L4 12 A4.5 4.5 0 0 1 12 6 A4.5 4.5 0 0 1 20 12 Z"/></svg></div>
+          <div class="row" style="justify-content:flex-end"><button class="btn text" id="fdone">done</button></div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+  <div class="replay">
+    <button class="btn primary" id="play">finish</button>
+    <span class="muted mono" style="font-size:11px">respects reduce-motion: you'd get the sheet only</span>
+  </div>
+</section>
+
+<section>
+  <div class="sechead"><span class="eyebrow">06 · notes & copy</span><h2>lowercase labels, plain sentences</h2></div>
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
+    <div class="card notes">
+      <div class="note" style="--c:var(--accent)"><q>She read them the way she read everything now: slowly, then all at once.</q><span class="mono muted" style="font-size:10px">The Message · ch. 7</span></div>
+      <div class="note" style="--c:var(--finished)"><q>Light is the left hand of darkness.</q><span class="mono muted" style="font-size:10px">The Left Hand of Darkness · ch. 16</span></div>
+    </div>
+    <div class="card" style="display:flex;flex-direction:column;gap:8px">
+      <span class="eyebrow">dialog</span>
+      <span style="font-size:15px;font-weight:600">you set this one down.</span>
+      <p class="muted" style="font-size:13px">Pick up where you left off, or start over?</p>
+      <div class="row"><button class="btn primary">resume</button><button class="btn">start over</button></div>
+    </div>
+    <div class="card" style="display:flex;flex-direction:column;gap:8px">
+      <span class="eyebrow">empty state</span>
+      <span style="font-size:15px;font-weight:600">no sessions yet.</span>
+      <p class="muted" style="font-size:13px">Open a book. The clock starts itself.</p>
+    </div>
+  </div>
+</section>
+</div>
+
+<script>
+(function(){
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = id => document.getElementById(id);
+
+  // ---- marks: (b) closed book, ribbon on top. 128 grid, book 72x86 (1:1.2), optically centred
+  const mark = (book, ribbon, sw=11) => `<svg viewBox="0 0 128 128" aria-hidden="true">
+    <rect x="31" y="23" width="66" height="82" rx="7" fill="none" stroke="${book}" stroke-width="${sw}" stroke-linejoin="round"/>
+    <path d="M48 23 V105" stroke="${book}" stroke-width="${sw}" stroke-linecap="butt"/>
+    <path d="M66 16 H84 V58 L75 50 L66 58 Z" fill="${ribbon}"/>
+  </svg>`;
+  const ways = [
+    ['final · ink, off-white book, purple ribbon', ['#EDEBE4','#C373FF'], ['#17171B','#B24BFF']]
+  ];
+  $('marks').innerHTML = ways.map(([name, ink, paper]) => `<div class="card mark">
+    <div class="tiles">
+      <div class="tile">${mark(ink[0], ink[1])}</div>
+      <div class="tile light">${mark(paper[0], paper[1])}</div>
+      <div class="tile sm">${mark(ink[0], ink[1], 12)}</div>
+      <div class="tile xs">${mark(ink[0], ink[1], 13)}</div>
+    </div><h3>${name}</h3></div>`).join('');
+
+  // ---- covers
+  const books = [
+    {t:'The Well of Ascension',a:'Brandon Sanderson',s:'reading',p:.43,bg:'#3B2A55'},
+    {t:'Middlemarch',a:'George Eliot',s:'finished',p:1,bg:'#4A2F1F'},
+    {t:'The Dispossessed',a:'Ursula K. Le Guin',s:'not',p:0,bg:'#22433A'},
+    {t:'Piranesi',a:'Susanna Clarke',s:'paused',p:.61,bg:'#2B3A52'},
+    {t:'Moby-Dick',a:'Herman Melville',s:'abandoned',p:.22,bg:'#33333B'},
+    {t:'Kindred',a:'Octavia E. Butler',s:'finished',p:1,bg:'#5A2A2E',img:1},
+    {t:'Engine Manual 2019',a:'unknown',s:'not',p:0,bg:'#2E3B33',badge:'missing'},
+    {t:'Dune',a:'Frank Herbert',s:'not',p:0,bg:'#5B4724',badge:'protected'},
+    {t:'Gilead',a:'Marilynne Robinson',s:'reading',p:.12,bg:'#2D3E4A'}
+  ];
+  const sc = {reading:'var(--accent)',finished:'var(--finished)',paused:'var(--paused)',abandoned:'var(--abandoned)',not:'var(--line2)'};
+  const sn = {reading:'reading',finished:'finished',paused:'paused',abandoned:'abandoned',not:'not read'};
+  const lock = '<svg class="i" viewBox="0 0 24 24" width="10" height="10"><path d="M6 11 H18 V20 H6 Z M9 11 V8 A3 3 0 0 1 15 8 V11"/></svg>';
+  const art = b => {
+    const deco = b.img ? `<svg viewBox="0 0 60 90" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect width="60" height="90" fill="${b.bg}"/><circle cx="40" cy="30" r="18" fill="#F5C451" opacity=".75"/><path d="M0 70 L30 50 L60 66 V90 H0 Z" fill="#0E0E11" opacity=".5"/></svg>` : '';
+    const badge = b.badge ? `<span class="badge">${b.badge==='protected'?lock:''}${b.badge}</span>` : '';
+    return `<div class="art${b.img?' img':''}" style="background:${b.bg}">${deco}<span class="t">${b.t}</span><span class="a">${b.a.toUpperCase()}</span>${badge}</div>`;
+  };
+  const cover = b => `<div class="cov">${art(b)}<div class="sbar" style="--c:${sc[b.s]}"><i style="width:${b.s==='not'?0:b.p*100}%"></i></div><span class="ct">${b.t}</span><span class="ca">${b.a}</span></div>`;
+  $('covergrid').innerHTML = books.map(cover).join('');
+  $('phonegrid').innerHTML = books.slice(0,6).map(cover).join('');
+  $('listrows').innerHTML = books.slice(0,7).map((b,i)=>`<div class="lrow${i===1||i===3?' sel':''}"><span class="check">${i===1||i===3?'<svg class="i" viewBox="0 0 24 24" width="14" height="14" style="color:var(--onAccent)"><path d="M5 12 L10 17 L19 7"/></svg>':''}</span>${art(b)}<div class="meta"><b>${b.t}</b><span>${b.a}</span><span style="color:${sc[b.s]}">${sn[b.s]}${b.s!=='not'?' · '+Math.round(b.p*100)+'%':''}</span></div></div>`).join('');
+
+  const starSvg = f => `<svg class="i" viewBox="0 0 24 24" style="color:var(--accent)">${f==='h'?'<defs><clipPath id="hh"><rect width="12" height="24"/></clipPath></defs><path clip-path="url(#hh)" fill="currentColor" stroke="none" d="M12 3 L14.6 9 L21 9.5 L16 13.6 L17.6 20 L12 16.6 L6.4 20 L8 13.6 L3 9.5 L9.4 9 Z"/>':''}<path ${f==='f'?'fill="currentColor"':''} d="M12 3 L14.6 9 L21 9.5 L16 13.6 L17.6 20 L12 16.6 L6.4 20 L8 13.6 L3 9.5 L9.4 9 Z"/></svg>`;
+  $('stars').innerHTML = ['f','f','f','f','h'].map(starSvg).join('');
+  $('stars2').innerHTML = ['e','e','e','e','e'].map(starSvg).join('');
+
+  // ---- fonts
+  const fonts = [
+    ['original','the book\'s own font', 'Georgia, serif'],
+    ['Literata','default','Literata, Georgia, serif'],['Source Serif 4','','"Source Serif 4", Georgia, serif'],['PT Serif','','"PT Serif", Georgia, serif'],
+    ['EB Garamond','','"EB Garamond", Garamond, serif'],['Crimson Pro','','"Crimson Pro", Georgia, serif'],['Bitter','slab','Bitter, Rockwell, serif'],
+    ['Lato','','Lato, system-ui, sans-serif'],['Open Sans','','"Open Sans", system-ui, sans-serif'],['Inter','','Inter, system-ui, sans-serif'],
+    ['Atkinson Hyperlegible','','"Atkinson Hyperlegible", system-ui, sans-serif'],['OpenDyslexic','stand-in here; real font in the app','"Comic Sans MS", system-ui, sans-serif']];
+  $('fontgrid').innerHTML = fonts.map(f=>`<div class="card" style="display:flex;flex-direction:column;gap:8px;padding:16px"><span class="eyebrow">${f[0].toLowerCase()}${f[1]?' · '+f[1]:''}</span><span style="font-family:${f[2]};font-size:15px;line-height:1.5">She read them the way she read everything now: slowly, then all at once.</span></div>`).join('');
+
+  // ---- nav
+  const navItems = [['books','<path d="M5 4 H15 V20 H5 Z M15 7 H19 V20 H15"/>'],['categories','<path d="M4 4 H10 V10 H4 Z M14 4 H20 V10 H14 Z M4 14 H10 V20 H4 Z M14 14 H20 V20 H14 Z"/>'],['authors','<circle cx="12" cy="8" r="4"/><path d="M4 20 C5 15 19 15 20 20"/>'],['notes','<path d="M5 4 H19 V20 H5 Z M8 9 H16 M8 13 H16 M8 17 H12"/>'],['stats','<path d="M5 20 V12 M12 20 V5 M19 20 V9"/>']];
+  document.querySelectorAll('.nav').forEach(nav=>navItems.forEach(([l,p],i)=>{
+    const b=document.createElement('button'); b.className=i===0?'on':''; b.innerHTML=`<svg class="i" viewBox="0 0 24 24">${p}</svg>${l}`;
+    b.onclick=()=>{nav.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');nav.querySelector('.ind').style.transform=`translateX(${i*100}%)`;};
+    nav.appendChild(b);}));
+
+  // ---- filter sheet
+  const fs=$('fsheetBooks'), fd=$('fdim');
+  document.querySelectorAll('[data-open="filter"]').forEach(b=>b.onclick=()=>{fs.hidden=false;fd.hidden=false;});
+  fd.onclick=$('fclose').onclick=()=>{fs.hidden=true;fd.hidden=true;};
+  document.querySelectorAll('.sw2').forEach(s=>s.parentElement.onclick=()=>s.classList.toggle('on'));
+  document.querySelectorAll('.sheet .chip').forEach(c=>c.onclick=()=>c.classList.toggle(c.classList.contains('filter')?'sel':'sel'));
+
+  // ---- book page state
+  const seg=$('segctl'), labels={reading:'68% · 1h 32m left',paused:'68% · paused',finished:'100% · finished',abandoned:'68% · abandoned'};
+  seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+    const s=b.textContent, bar=document.querySelector('#bpseg i');
+    bar.style.transition='background .15s, width .25s cubic-bezier(.2,0,0,1)'; bar.style.background=sc[s]; bar.style.width=s==='finished'?'100%':'68%';
+    $('bplab').textContent=labels[s]; $('bplab').style.setProperty('--c',sc[s]);});
+
+  // ---- stats
+  let seed=7; const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};
+  let h=''; for(let i=0;i<140;i++){const r=rnd();const lv=r<.3?0:r<.5?.25:r<.7?.5:r<.88?.75:1;h+=`<i style="${lv?`background:color-mix(in srgb, var(--accent) ${lv*100}%, var(--surface2))`:''}"></i>`;} $('heat').innerHTML=h;
+  const vals=[3,4,2,5,4,6,3,5,7,6,6,2]; let s='';
+  vals.forEach((v,i)=>{const hh=v*11,x=i*24;s+=`<rect x="${x}" y="${84-hh}" width="18" height="${hh}" rx="2" fill="${v===7?'var(--accent)':'var(--line2)'}"/>`;});
+  s+='<line x1="0" y1="84.5" x2="288" y2="84.5" stroke="var(--line)"/>';
+  'jfmamjjasond'.split('').forEach((m,i)=>{s+=`<text x="${i*24+9}" y="95" text-anchor="middle" font-family="Space Mono, monospace" font-size="8" fill="var(--muted)">${m}</text>`;});
+  $('bars').innerHTML=s;
+
+  // ---- app theme toggle
+  const setApp=t=>{document.querySelectorAll('.phone.app').forEach(p=>{p.classList.toggle('ink',t==='ink');p.classList.toggle('paper',t==='paper');});$('t-ink').classList.toggle('on',t==='ink');$('t-paper').classList.toggle('on',t==='paper');};
+  $('t-ink').onclick=()=>setApp('ink'); $('t-paper').onclick=()=>setApp('paper');
+
+  // ---- reader
+  const R={light:['#FBF9F4','#1B1B1F','#7D34B2','#F2EFE7','#DDD8CC'],sepia:['#F1E7D0','#4A3B28','#7D34B2','#E8DCC0','#D3C4A2'],dark:['#17171B','#D8D5CC','#C373FF','#1E1E24','#2A2A31'],black:['#000000','#B8B6AE','#C373FF','#0E0E11','#222228']};
+  const reader=$('reader'), page=$('rpage'), rt=$('rthemes');
+  function setR(k){const v=R[k];reader.style.background=v[0];reader.style.color=v[1];reader.style.setProperty('--ra',v[2]);reader.style.setProperty('--rs',v[3]);reader.style.setProperty('--rt',v[1]);reader.style.setProperty('--rl',v[4]);reader.style.borderColor=v[4];rt.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));}
+  Object.keys(R).forEach(k=>{const b=document.createElement('button');b.dataset.k=k;b.textContent=k;b.style.background=R[k][0];b.style.color=R[k][1];b.onclick=()=>setR(k);rt.appendChild(b);});
+  const plus=document.createElement('button');plus.textContent='+ custom';plus.style.background='transparent';rt.appendChild(plus);
+  setR('sepia');
+  const rf=$('rfonts');
+  fonts.slice(0,11).forEach((f,i)=>{const b=document.createElement('button');b.textContent=f[0].toLowerCase();b.style.fontFamily=f[2];if(i===1)b.className='on';b.onclick=()=>{page.style.fontFamily=f[2];rf.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));};rf.appendChild(b);});
+  page.style.fontFamily=fonts[1][2];
+  let fsz=15, lh=1.65;
+  reader.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{fsz=Math.max(12,Math.min(22,fsz+ +b.dataset.s));page.style.fontSize=fsz+'px';$('fsz').textContent=fsz;});
+  reader.querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{lh=Math.round(Math.max(1.2,Math.min(2.2,lh+ b.dataset.l*0.1))*100)/100;page.style.lineHeight=lh;$('lh').textContent=lh.toFixed(2);});
+  $('align').querySelectorAll('button').forEach(b=>b.onclick=()=>{page.style.textAlign=b.dataset.a;$('align').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));});
+  reader.querySelectorAll('.opts').forEach(o=>{if(o.id==='align')return;o.querySelectorAll('button').forEach(b=>b.onclick=()=>o.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)));});
+  const tabs=reader.querySelectorAll('.tabs button'), panes=reader.querySelectorAll('.tabp');
+  tabs.forEach(t=>t.onclick=()=>{const n=+t.dataset.t;tabs.forEach(x=>x.classList.toggle('on',x===t));panes.forEach((p,i)=>p.classList.toggle('on',i===n));reader.querySelector('.tind').style.transform=`translateX(${n*100}%)`;});
+  $('rsetbtn').onclick=e=>{e.stopPropagation();reader.classList.add('set');reader.classList.add('hide');};
+  page.onclick=()=>{ if(reader.classList.contains('set')){reader.classList.remove('set');return;} reader.classList.toggle('hide'); };
+
+  // ---- celebration v2: full-screen fields + streaks, auto ends
+  const cel=$('cel'), cv=$('burst'), ctx=cv.getContext('2d'), fsheet=$('fsheet');
+  const cov=cel.querySelector('.ccov'), word=cel.querySelector('.word'), nums=cel.querySelector('.nums'), pb=cel.querySelector('.pbs .pb');
+  const E=t=>1-Math.pow(1-t,3), EI=t=>t*t*t, C=x=>Math.max(0,Math.min(1,x)), S=(t,a,b)=>C((t-a)/(b-a));
+  let sd=42; const r2=()=>{sd=(sd*16807)%2147483647;return sd/2147483647;};
+  const lines=Array.from({length:22},()=>({y:r2(),w:1.5+r2()*3,len:.25+r2()*.5,d:r2()*.35,c:r2()<.5?'#0E0E11':'#F4F1EA'}));
+  const sparks=Array.from({length:30},()=>({a:r2()*Math.PI*2,len:12+r2()*22,dist:110+r2()*150,w:3+r2()*2,c:['#C373FF','#0E0E11','#F5C451'][Math.floor(r2()*3)],d:r2()*.2}));
+  const END=2800; let raf=0,t0=0,running=false;
+  function draw(t){
+    const W=cv.clientWidth,H=cv.clientHeight,dpr=devicePixelRatio||1; if(cv.width!==Math.round(W*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);}
+    ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+    const sk=H*.35; // diagonal skew of the sweeps
+    // 1. purple flood: diagonal sweep from left (0-380ms)
+    const p1=E(S(t,0,380)); // 2. green sweep over purple (300-850ms)
+    const p2=E(S(t,300,850));
+    // exit (2300-2800): green slides out to the right revealing the page
+    const px=E(S(t,2300,2800));
+    const off=px*(W+sk);
+    if(p1>0){ctx.fillStyle='#C373FF';ctx.beginPath();const x=p1*(W+sk);ctx.moveTo(off,0);ctx.lineTo(x+off,0);ctx.lineTo(x-sk+off,H);ctx.lineTo(off-sk,H);ctx.closePath();ctx.fill();}
+    if(p2>0){ctx.fillStyle='#3DE08A';ctx.beginPath();const x=p2*(W+sk);ctx.moveTo(off,0);ctx.lineTo(x+off,0);ctx.lineTo(x-sk+off,H);ctx.lineTo(off-sk,H);ctx.closePath();ctx.fill();}
+    // speed lines across the whole screen (250-1200ms)
+    const pl=S(t,250,1200);
+    if(pl>0&&pl<1){lines.forEach(l=>{const q=C((pl-l.d)/(1-l.d)); if(q<=0||q>=1)return; const x1=W*1.2-q*W*1.8, x0=x1-l.len*W; ctx.globalAlpha=Math.sin(q*Math.PI)*.85; ctx.fillStyle=l.c; ctx.fillRect(x0+off,l.y*H,l.len*W,l.w);}); ctx.globalAlpha=1;}
+    // spark burst from the cover (750-1450ms)
+    const cx=W/2+off, cy=H/2-70, pb2=S(t,750,1450);
+    if(pb2>0&&pb2<1){sparks.forEach(s=>{const q=E(C((pb2-s.d)/(1-s.d))); if(q<=0)return; const r0=70+q*s.dist, r1=r0+s.len*(1-q*.5); ctx.globalAlpha=1-q; ctx.strokeStyle=s.c; ctx.lineWidth=s.w; ctx.lineCap='butt'; ctx.beginPath(); ctx.moveTo(cx+Math.cos(s.a)*r0,cy+Math.sin(s.a)*r0); ctx.lineTo(cx+Math.cos(s.a)*r1,cy+Math.sin(s.a)*r1); ctx.stroke();}); ctx.globalAlpha=1;}
+    // DOM layers
+    const ci=E(S(t,500,1000)), out=1-px;
+    cov.style.opacity=Math.min(ci,out); cov.style.transform=`translate(${px*W*.6}px, ${(1-ci)*60}px) rotate(${(1-ci)*-6}deg) scale(${.85+ci*.15})`;
+    const wi=E(S(t,850,1300)); word.style.opacity=Math.min(wi,out); word.style.transform=`translate(${px*W*.6}px, ${(1-wi)*18}px)`;
+    nums.style.opacity=Math.min(E(S(t,1000,1400)),out); nums.style.transform=`translateX(${px*W*.6}px)`;
+    const k=E(S(t,1000,1900)); const mins=Math.round(k*(31*60+17));
+    $('ntime').textContent=`${Math.floor(mins/60)}h ${String(mins%60).padStart(2,'0')}m`; $('nsess').textContent=Math.round(k*58); $('ndays').textContent=Math.round(k*41);
+    pb.style.transform=`translateX(${(E(S(t,1400,1800))-1)*102 + px*102}%)`;
+  }
+  function frame(now){const t=now-t0; draw(t); if(t<END) raf=requestAnimationFrame(frame); else finish();}
+  function finish(){running=false;cel.classList.remove('run');draw(END);fsheet.classList.add('on');}
+  function play(){cancelAnimationFrame(raf);fsheet.classList.remove('on');if(reduce){fsheet.classList.add('on');return;}running=true;cel.classList.add('run');t0=performance.now();raf=requestAnimationFrame(frame);}
+  $('play').onclick=play;
+  cel.onclick=()=>{ if(running){ const t=performance.now()-t0; if(t<2300){ t0=performance.now()-2300; } } };
+  $('fdone').onclick=()=>fsheet.classList.remove('on');
+})();
+</script>

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "appVersion": "0.1.0",
+  "exportedAt": "2026-11-15T17:00:00.000Z",
+  "books": [
+    {
+      "id": "9212b615714b1b6137609738020b05a296750cb1cad121074b31ded45e0c40c24",
+      "title": "Pride and Prejudice",
+      "authors": ["Jane Austen"],
+      "edition": {
+        "provider": "openlibrary",
+        "workId": "OL66554W",
+        "isbn10": "0141439513",
+        "isbn13": "9780141439518"
+      },
+      "format": "epub",
+      "state": "finished",
+      "rating": 4.5,
+      "favorite": true,
+      "readThroughs": [
+        {
+          "id": "190aa141-3620-429d-a66f-bdcd1638ab92",
+          "startedAt": "2026-11-01T14:12:18.000Z",
+          "endedAt": "2026-11-13T12:30:00.000Z",
+          "outcome": "finished"
+        }
+      ],
+      "totalActiveSeconds": 23100
+    }
+  ],
+  "authors": [
+    {
+      "name": "Jane Austen",
+      "bookIds": ["9212b615714b1b6137609738020b05a296750cb1cad121074b31ded45e0c40c24"],
+      "totalActiveSeconds": 23100
+    }
+  ],
+  "categories": [
+    {
+      "id": "86916072-2636-40fa-81bd-f2e3213c61c6",
+      "name": "Weekend reading",
+      "description": "",
+      "types": ["Reading list"],
+      "members": [
+        {
+          "bookId": "9212b615714b1b6137609738020b05a296750cb1cad121074b31ded45e0c40c24",
+          "position": 1
+        }
+      ],
+      "rating": 4.5,
+      "ratingOverride": null
+    }
+  ],
+  "stats": {
+    "books": 1,
+    "finishedReadThroughs": 1,
+    "activeSeconds": 23100,
+    "sessions": 9,
+    "pagesRead": 483
+  }
+}
